@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <snubs@snubby.top>
+Date: Sun, 17 May 2026 18:00:00 -0400
+Subject: [PATCH] fix Citizens player NPC visibility
+
+
+diff --git a/src/main/java/net/minecraft/server/EntityTrackerEntry.java b/src/main/java/net/minecraft/server/EntityTrackerEntry.java
+index c13ea98e7a3a913b0719c02f8d47d71b79514cb7..5dbe85474bdbf18ddb3701b8cba535b5506301a8 100644
+--- a/src/main/java/net/minecraft/server/EntityTrackerEntry.java
++++ b/src/main/java/net/minecraft/server/EntityTrackerEntry.java
+@@ -16,7 +16,6 @@ import org.bukkit.event.player.PlayerVelocityEvent;
+ // CraftBukkit end
+ 
+ // Beast start - FastUtil optimization
+-import it.unimi.dsi.fastutil.objects.Object2BooleanMap;
+ import it.unimi.dsi.fastutil.objects.Object2BooleanOpenHashMap;
+ // Beast end
+ 
+@@ -50,7 +49,10 @@ public class EntityTrackerEntry {
+     // Paper start
+     // Replace trackedPlayers Set with a Map. The value is true until the player receives
+     // their first update which then falls back to false
+-    public Object2BooleanMap<EntityPlayer> trackedPlayerMap = new Object2BooleanOpenHashMap<>(); // Beast - FastUtil optimization
++    // Keep the declared type as Map. Citizens wraps this field reflectively and
++    // only searches for an exact java.util.Map field type.
++    public java.util.Map<EntityPlayer, Boolean> trackedPlayerMap = new Object2BooleanOpenHashMap<>(); // Beast - FastUtil optimization
+     public Set<EntityPlayer> trackedPlayers = trackedPlayerMap.keySet();
+     // Paper end
+ 
+@@ -220,9 +222,9 @@ public class EntityTrackerEntry {
+                     } else {
+                         PacketPlayOutEntityTeleport teleportPacket = null;
+ 
+-                        for (Object2BooleanMap.Entry<EntityPlayer> viewer : trackedPlayerMap.object2BooleanEntrySet()) { // Beast - FastUtil optimization
+-                            if (viewer.getBooleanValue()) { // Beast - FastUtil optimization
+-                                viewer.setValue(false);
++                        for (java.util.Map.Entry<EntityPlayer, Boolean> viewer : trackedPlayerMap.entrySet()) { // Beast - Citizens compatibility
++                            if (viewer.getValue()) {
++                                viewer.setValue(false);
+                                 if (teleportPacket == null) {
+                                     teleportPacket = new PacketPlayOutEntityTeleport(this.tracker);
+                                 }
