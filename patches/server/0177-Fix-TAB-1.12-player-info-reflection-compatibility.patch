@@ -1,0 +1,214 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Fri, 22 May 2026 17:39:59 -0400
+Subject: [PATCH] Fix TAB 1.12 player info reflection compatibility
+
+
+diff --git a/src/main/java/net/minecraft/server/PacketPlayOutPlayerInfo$EnumPlayerInfoAction.java b/src/main/java/net/minecraft/server/PacketPlayOutPlayerInfo$EnumPlayerInfoAction.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..3a8fe999c16d328e807fb80c19eddc77f08bae2a
+--- /dev/null
++++ b/src/main/java/net/minecraft/server/PacketPlayOutPlayerInfo$EnumPlayerInfoAction.java
+@@ -0,0 +1,8 @@
++package net.minecraft.server;
++
++// its ment to be top level, keeps the old binary name while leaving PlayerInfoData
++// as the first declared class for plugins that reflect PacketPlayOutPlayerInfo
++public enum PacketPlayOutPlayerInfo$EnumPlayerInfoAction {
++
++    ADD_PLAYER, UPDATE_GAME_MODE, UPDATE_LATENCY, UPDATE_DISPLAY_NAME, REMOVE_PLAYER;
++}
+diff --git a/src/main/java/net/minecraft/server/PacketPlayOutPlayerInfo.java b/src/main/java/net/minecraft/server/PacketPlayOutPlayerInfo.java
+index c051c1ab72b92ab9fdbb515cd306a0aea99d913b..84a640feeb36fca54012e6452adee632c1225eee 100644
+--- a/src/main/java/net/minecraft/server/PacketPlayOutPlayerInfo.java
++++ b/src/main/java/net/minecraft/server/PacketPlayOutPlayerInfo.java
+@@ -12,12 +12,12 @@ import javax.annotation.Nullable;
+ 
+ public class PacketPlayOutPlayerInfo implements Packet<PacketListenerPlayOut> {
+ 
+-    private PacketPlayOutPlayerInfo.EnumPlayerInfoAction a;
++    private PacketPlayOutPlayerInfo$EnumPlayerInfoAction a;
+     private final List<PacketPlayOutPlayerInfo.PlayerInfoData> b = Lists.newArrayList();
+ 
+     public PacketPlayOutPlayerInfo() {}
+ 
+-    public PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction packetplayoutplayerinfo_enumplayerinfoaction, EntityPlayer... aentityplayer) {
++    public PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction packetplayoutplayerinfo_enumplayerinfoaction, EntityPlayer... aentityplayer) {
+         this.a = packetplayoutplayerinfo_enumplayerinfoaction;
+         EntityPlayer[] aentityplayer1 = aentityplayer;
+         int i = aentityplayer.length;
+@@ -30,7 +30,7 @@ public class PacketPlayOutPlayerInfo implements Packet<PacketListenerPlayOut> {
+ 
+     }
+ 
+-    public PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction packetplayoutplayerinfo_enumplayerinfoaction, Iterable<EntityPlayer> iterable) {
++    public PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction packetplayoutplayerinfo_enumplayerinfoaction, Iterable<EntityPlayer> iterable) {
+         this.a = packetplayoutplayerinfo_enumplayerinfoaction;
+         Iterator iterator = iterable.iterator();
+ 
+@@ -43,7 +43,7 @@ public class PacketPlayOutPlayerInfo implements Packet<PacketListenerPlayOut> {
+     }
+ 
+     public void a(PacketDataSerializer packetdataserializer) throws IOException {
+-        this.a = (PacketPlayOutPlayerInfo.EnumPlayerInfoAction) packetdataserializer.a(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.class);
++        this.a = (PacketPlayOutPlayerInfo$EnumPlayerInfoAction) packetdataserializer.a(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.class);
+         int i = packetdataserializer.g();
+ 
+         for (int j = 0; j < i; ++j) {
+@@ -226,10 +226,4 @@ public class PacketPlayOutPlayerInfo implements Packet<PacketListenerPlayOut> {
+         }
+     }
+ 
+-    public static enum EnumPlayerInfoAction {
+-
+-        ADD_PLAYER, UPDATE_GAME_MODE, UPDATE_LATENCY, UPDATE_DISPLAY_NAME, REMOVE_PLAYER;
+-
+-        private EnumPlayerInfoAction() {}
+-    }
+ }
+diff --git a/src/main/java/net/minecraft/server/PlayerInteractManager.java b/src/main/java/net/minecraft/server/PlayerInteractManager.java
+index eb3fbc0eaba93d63b567bed59fd82994f8b0bbf5..b904d2303b02360235dbeac8a8201b560080cff4 100644
+--- a/src/main/java/net/minecraft/server/PlayerInteractManager.java
++++ b/src/main/java/net/minecraft/server/PlayerInteractManager.java
+@@ -38,7 +38,7 @@ public class PlayerInteractManager {
+         this.gamemode = enumgamemode;
+         enumgamemode.a(this.player.abilities);
+         this.player.updateAbilities();
+-        this.player.server.getPlayerList().sendAll(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.UPDATE_GAME_MODE, new EntityPlayer[] { this.player}), this.player); // CraftBukkit
++        this.player.server.getPlayerList().sendAll(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.UPDATE_GAME_MODE, new EntityPlayer[] { this.player}), this.player); // CraftBukkit
+         this.world.everyoneSleeping();
+     }
+ 
+diff --git a/src/main/java/net/minecraft/server/PlayerList.java b/src/main/java/net/minecraft/server/PlayerList.java
+index 7202c449726ae2c26490e896b4f9ed6625ea0116..2031f1a6222f4a3dc45d8e5c5d5cf732369b09a7 100644
+--- a/src/main/java/net/minecraft/server/PlayerList.java
++++ b/src/main/java/net/minecraft/server/PlayerList.java
+@@ -366,7 +366,7 @@ public abstract class PlayerList {
+         this.players.add(entityplayer);
+         this.playersByName.put(entityplayer.getName(), entityplayer); // Spigot
+         this.j.put(entityplayer.getUniqueID(), entityplayer);
+-        // this.sendAll(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, new EntityPlayer[] { entityplayer})); // CraftBukkit - replaced with loop below
++        // this.sendAll(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.ADD_PLAYER, new EntityPlayer[] { entityplayer})); // CraftBukkit - replaced with loop below
+         WorldServer worldserver = this.server.getWorldServer(entityplayer.dimension);
+ 
+         // CraftBukkit start
+@@ -389,7 +389,7 @@ public abstract class PlayerList {
+         // CraftBukkit end
+ 
+         // CraftBukkit start - sendAll above replaced with this loop
+-        PacketPlayOutPlayerInfo packet = new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, entityplayer);
++        PacketPlayOutPlayerInfo packet = new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.ADD_PLAYER, entityplayer);
+ 
+         for (int i = 0; i < this.players.size(); ++i) {
+             EntityPlayer entityplayer1 = (EntityPlayer) this.players.get(i);
+@@ -402,7 +402,7 @@ public abstract class PlayerList {
+                 continue;
+             }
+ 
+-            entityplayer.playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, new EntityPlayer[] { entityplayer1}));
++            entityplayer.playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.ADD_PLAYER, new EntityPlayer[] { entityplayer1}));
+         }
+         entityplayer.sentListPacket = true;
+         // CraftBukkit end
+@@ -483,8 +483,8 @@ public abstract class PlayerList {
+         }
+ 
+         // CraftBukkit start
+-        //  this.sendAll(new PacketPlayOutPlayerInfo(EnumPlayerInfoAction.REMOVE_PLAYER, new EntityPlayer[] { entityplayer}));
+-        PacketPlayOutPlayerInfo packet = new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, entityplayer);
++        //  this.sendAll(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.REMOVE_PLAYER, new EntityPlayer[] { entityplayer}));
++        PacketPlayOutPlayerInfo packet = new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.REMOVE_PLAYER, entityplayer);
+         for (int i = 0; i < players.size(); i++) {
+             EntityPlayer entityplayer2 = (EntityPlayer) this.players.get(i);
+ 
+@@ -1050,7 +1050,7 @@ public abstract class PlayerList {
+                 for (int i = 0; i < this.players.size(); ++i) {
+                     EntityPlayer target = this.players.get(i);
+ 
+-                    packetEntries.add(new Tuple<>(target, new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.UPDATE_LATENCY, Iterables.filter(this.players, new Predicate<EntityPlayer>() {
++                    packetEntries.add(new Tuple<>(target, new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.UPDATE_LATENCY, Iterables.filter(this.players, new Predicate<EntityPlayer>() {
+                         @Override
+                         public boolean apply(EntityPlayer input) {
+                             return target.getBukkitEntity().canSee(input.getBukkitEntity());
+@@ -1069,7 +1069,7 @@ public abstract class PlayerList {
+             for (int i = 0; i < this.players.size(); ++i) {
+                 final EntityPlayer target = (EntityPlayer) this.players.get(i);
+ 
+-                target.playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.UPDATE_LATENCY, Iterables.filter(this.players, new Predicate<EntityPlayer>() {
++                target.playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.UPDATE_LATENCY, Iterables.filter(this.players, new Predicate<EntityPlayer>() {
+                     @Override
+                     public boolean apply(EntityPlayer input) {
+                         return target.getBukkitEntity().canSee(input.getBukkitEntity());
+diff --git a/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java b/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java
+index 4f7125e5611cd4b472b47b328bc7b2aa0eefc95c..37ae93b42d1132d998d48c9b1602068d87239ba0 100644
+--- a/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java
++++ b/src/main/java/org/bukkit/craftbukkit/entity/CraftPlayer.java
+@@ -299,7 +299,7 @@ public class CraftPlayer extends CraftHumanEntity implements Player {
+         getHandle().listName = name.equals(getName()) ? null : CraftChatMessage.fromStringFast(name)[0]; // Beast
+         for (EntityPlayer player : (List<EntityPlayer>)server.getHandle().players) {
+             if (player.getBukkitEntity().canSee(this)) {
+-                player.playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.UPDATE_DISPLAY_NAME, getHandle()));
++                player.playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.UPDATE_DISPLAY_NAME, getHandle()));
+             }
+         }
+     }
+@@ -1113,7 +1113,7 @@ public class CraftPlayer extends CraftHumanEntity implements Player {
+ 
+         // Remove the hidden player from this player user list, if they're on it
+         if (other.sentListPacket) {
+-            getHandle().playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.REMOVE_PLAYER, other));
++            getHandle().playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.REMOVE_PLAYER, other));
+         }
+     }
+ 
+@@ -1154,7 +1154,7 @@ public class CraftPlayer extends CraftHumanEntity implements Player {
+         EntityTracker tracker = ((WorldServer) entity.world).tracker;
+         // Paper end
+ 
+-        getHandle().playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo.EnumPlayerInfoAction.ADD_PLAYER, other));
++        getHandle().playerConnection.sendPacket(new PacketPlayOutPlayerInfo(PacketPlayOutPlayerInfo$EnumPlayerInfoAction.ADD_PLAYER, other));
+ 
+         EntityTrackerEntry entry = tracker.trackedEntities.get(other.getId());
+         if (entry != null && !entry.trackedPlayers.contains(getHandle())) {
+diff --git a/src/test/java/net/minecraft/server/PacketPlayOutPlayerInfoTest.java b/src/test/java/net/minecraft/server/PacketPlayOutPlayerInfoTest.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..fd8309d46df47dc5abb8ca063a4d7707a5185a9a
+--- /dev/null
++++ b/src/test/java/net/minecraft/server/PacketPlayOutPlayerInfoTest.java
+@@ -0,0 +1,33 @@
++package net.minecraft.server;
++
++import static org.hamcrest.Matchers.is;
++import static org.junit.Assert.assertThat;
++
++import com.mojang.authlib.GameProfile;
++import java.lang.reflect.Field;
++import java.util.ArrayList;
++import java.util.List;
++import org.junit.Test;
++
++public class PacketPlayOutPlayerInfoTest {
++
++    @Test
++    public void tabPluginCompatibleInnerClassOrder() {
++        Class<?> playerInfoDataClass = PacketPlayOutPlayerInfo.class.getDeclaredClasses()[0];
++
++        assertThat(playerInfoDataClass.getSimpleName(), is("PlayerInfoData"));
++        assertThat(fieldsOfType(playerInfoDataClass, GameProfile.class).size(), is(1));
++    }
++
++    private static List<Field> fieldsOfType(Class<?> clazz, Class<?> type) {
++        List<Field> fields = new ArrayList<Field>();
++
++        for (Field field : clazz.getDeclaredFields()) {
++            if (field.getType() == type) {
++                fields.add(field);
++            }
++        }
++
++        return fields;
++    }
++}
+-- 
+2.40.0.windows.1
+
