@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Fri, 22 May 2026 20:22:50 -0400
+Subject: [PATCH] le fish
+
+
+diff --git a/src/main/java/org/bukkit/event/player/PlayerFishEvent.java b/src/main/java/org/bukkit/event/player/PlayerFishEvent.java
+index 211e304fae2fd0c7e0fc625787c5af0a72515f7a..df7c43a3d5ab799473dc13d6f6cebc3290bc2e77 100644
+--- a/src/main/java/org/bukkit/event/player/PlayerFishEvent.java
++++ b/src/main/java/org/bukkit/event/player/PlayerFishEvent.java
+@@ -1,15 +1,22 @@
+ package org.bukkit.event.player;
+ 
+ import org.bukkit.entity.Fish;
++import org.bukkit.entity.FishHook;
+ import org.bukkit.entity.Player;
+ import org.bukkit.event.Cancellable;
+ import org.bukkit.entity.Entity;
+ import org.bukkit.event.HandlerList;
+ 
++// Generates a FishHook-returning bridge method while retaining the legacy Fish
++// return type for plugins compiled against this API.
++interface PlayerFishEventHookAccessor {
++    public FishHook getHook();
++}
++
+ /**
+  * Thrown when a player is fishing
+  */
+-public class PlayerFishEvent extends PlayerEvent implements Cancellable {
++public class PlayerFishEvent extends PlayerEvent implements Cancellable, PlayerFishEventHookAccessor {
+     private static final HandlerList handlers = new HandlerList();
+     private final Entity entity;
+     private boolean cancel = false;
+diff --git a/src/test/java/org/bukkit/event/player/PlayerFishEventTest.java b/src/test/java/org/bukkit/event/player/PlayerFishEventTest.java
+new file mode 100644
+index 0000000000000000000000000000000000000000..cc207218a00c67bfcef8f8861c6411f10781bf17
+--- /dev/null
++++ b/src/test/java/org/bukkit/event/player/PlayerFishEventTest.java
+@@ -0,0 +1,28 @@
++package org.bukkit.event.player;
++
++import static org.hamcrest.Matchers.is;
++import static org.junit.Assert.assertThat;
++
++import java.lang.reflect.Method;
++import org.bukkit.entity.Fish;
++import org.bukkit.entity.FishHook;
++import org.junit.Test;
++
++public class PlayerFishEventTest {
++
++    @Test
++    public void exposesFishAndFishHookGetHookDescriptors() {
++        boolean hasLegacyFishReturn = false;
++        boolean hasFishHookReturn = false;
++
++        for (Method method : PlayerFishEvent.class.getDeclaredMethods()) {
++            if (method.getName().equals("getHook") && method.getParameterTypes().length == 0) {
++                hasLegacyFishReturn |= method.getReturnType() == Fish.class;
++                hasFishHookReturn |= method.getReturnType() == FishHook.class;
++            }
++        }
++
++        assertThat(hasLegacyFishReturn, is(true));
++        assertThat(hasFishHookReturn, is(true));
++    }
++}
+-- 
+2.40.0.windows.1
+
