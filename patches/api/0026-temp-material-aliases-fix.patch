@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Wed, 3 Jun 2026 17:40:58 -0400
+Subject: [PATCH] temp material aliases fix
+
+
+diff --git a/src/main/java/org/bukkit/Material.java b/src/main/java/org/bukkit/Material.java
+index 91e89d8ec9cdc8e7e4afb63b32c7b2184f982935..ed93a64fcb5ee55359e7a32a5fcb410c858a7a5b 100644
+--- a/src/main/java/org/bukkit/Material.java
++++ b/src/main/java/org/bukkit/Material.java
+@@ -167,6 +167,10 @@ public enum Material {
+     DIODE_BLOCK_OFF(93, Diode.class),
+     DIODE_BLOCK_ON(94, Diode.class),
+     STAINED_GLASS(95),
++    @Deprecated
++    OAK_TRAPDOOR(96, TrapDoor.class),
++    @Deprecated
++    TRAP_DOOR_ITEM(96, TrapDoor.class),
+     TRAP_DOOR(96, TrapDoor.class),
+     MONSTER_EGGS(97, MonsterEggs.class),
+     SMOOTH_BRICK(98, SmoothBrick.class),
+@@ -238,6 +242,8 @@ public enum Material {
+     DARK_OAK_STAIRS(164, Stairs.class),
+     SLIME_BLOCK(165),
+     BARRIER(166),
++    @Deprecated
++    IRON_TRAPDOOR_ITEM(167, TrapDoor.class),
+     IRON_TRAPDOOR(167, TrapDoor.class),
+     PRISMARINE(168),
+     SEA_LANTERN(169),
+@@ -522,6 +528,8 @@ public enum Material {
+     BOAT_JUNGLE(446, 1),
+     BOAT_ACACIA(447, 1),
+     BOAT_DARK_OAK(448, 1),
++    @Deprecated
++    TOTEM_OF_UNDYING(449, 1),
+     TOTEM(449, 1),
+     SHULKER_SHELL(450),
+     IRON_NUGGET(452),
+@@ -859,6 +867,8 @@ public enum Material {
+             case JACK_O_LANTERN:
+             case CAKE_BLOCK:
+             case STAINED_GLASS:
++            case OAK_TRAPDOOR:
++            case TRAP_DOOR_ITEM:
+             case TRAP_DOOR:
+             case MONSTER_EGGS:
+             case SMOOTH_BRICK:
+@@ -918,6 +928,7 @@ public enum Material {
+             case RED_SANDSTONE:
+             case SLIME_BLOCK:
+             case BARRIER:
++            case IRON_TRAPDOOR_ITEM:
+             case IRON_TRAPDOOR:
+             case PRISMARINE:
+             case SEA_LANTERN:
+@@ -1093,6 +1104,8 @@ public enum Material {
+             case WOOD_PLATE:
+             case JUKEBOX:
+             case FENCE:
++            case OAK_TRAPDOOR:
++            case TRAP_DOOR_ITEM:
+             case TRAP_DOOR:
+             case HUGE_MUSHROOM_1:
+             case HUGE_MUSHROOM_2:
+@@ -1227,6 +1240,8 @@ public enum Material {
+             case DARK_OAK_STAIRS:
+             case JUNGLE_WOOD_STAIRS:
+             case SPRUCE_WOOD_STAIRS:
++            case OAK_TRAPDOOR:
++            case TRAP_DOOR_ITEM:
+             case TRAP_DOOR:
+             case WORKBENCH:
+             case BOOKSHELF:
+diff --git a/src/test/java/org/bukkit/MaterialTest.java b/src/test/java/org/bukkit/MaterialTest.java
+index 61c6871180da87f3d88a4f4f3fb3d2e838f421aa..22352b638f635dccb0f5d2f21226ebf2e8e896a5 100644
+--- a/src/test/java/org/bukkit/MaterialTest.java
++++ b/src/test/java/org/bukkit/MaterialTest.java
+@@ -82,4 +82,26 @@ public class MaterialTest {
+             assertThat(Material.matchMaterial(name), is(material));
+         }
+     }
++
++    @Test
++    public void tempfixlol() {
++        assertThat(Material.TOTEM_OF_UNDYING.getId(), is(Material.TOTEM.getId()));
++        assertThat(Material.getMaterial("TOTEM_OF_UNDYING"), is(Material.TOTEM_OF_UNDYING));
++        assertThat(Material.matchMaterial("totem of undying"), is(Material.TOTEM_OF_UNDYING));
++        assertThat(Material.getMaterial(Material.TOTEM.getId()), is(Material.TOTEM));
++
++        assertThat(Material.TRAP_DOOR_ITEM.getId(), is(Material.TRAP_DOOR.getId()));
++        assertThat(Material.OAK_TRAPDOOR.getId(), is(Material.TRAP_DOOR.getId()));
++        assertThat(Material.IRON_TRAPDOOR_ITEM.getId(), is(Material.IRON_TRAPDOOR.getId()));
++
++        assertThat(Material.valueOf("TRAP_DOOR_ITEM"), is(Material.TRAP_DOOR_ITEM));
++        assertThat(Material.getMaterial("TRAP_DOOR_ITEM"), is(Material.TRAP_DOOR_ITEM));
++        assertThat(Material.matchMaterial("oak trapdoor"), is(Material.OAK_TRAPDOOR));
++        assertThat(Material.getMaterial(Material.TRAP_DOOR.getId()), is(Material.TRAP_DOOR));
++        assertThat(Material.getMaterial(Material.IRON_TRAPDOOR.getId()), is(Material.IRON_TRAPDOOR));
++
++        assertThat(Material.TRAP_DOOR_ITEM.isFuel(), is(Material.TRAP_DOOR.isFuel()));
++        assertThat(Material.OAK_TRAPDOOR.isFlammable(), is(Material.TRAP_DOOR.isFlammable()));
++        assertThat(Material.IRON_TRAPDOOR_ITEM.isSolid(), is(Material.IRON_TRAPDOOR.isSolid()));
++    }
+ }
+-- 
+2.40.0.windows.1
+
