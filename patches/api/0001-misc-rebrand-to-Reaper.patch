@@ -43,8 +43,8 @@ index 6bb7607dde6c3f20f2f2b9b8b5dad877f84f6646..75d6e005ff310ae20dc2ad4cf82d7305
          if (version == null) version = "Custom";
 -        if (version.startsWith("git-Paper-")) {
 -            String[] parts = version.substring("git-Paper-".length()).split("[-\\s]");
-+        if (version.startsWith("git-Beast-")) {
-+            String[] parts = version.substring("git-Beast-".length()).split("[-\\s]");
++        if (version.startsWith("git-SME-Beast-")) {
++            String[] parts = version.substring("git-SME-Beast-".length()).split("[-\\s]");
              int distance = getDistance(null, parts[0]);
              switch (distance) {
                  case -1:
