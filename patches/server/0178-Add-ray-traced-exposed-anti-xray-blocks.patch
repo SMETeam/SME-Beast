@@ -1,0 +1,816 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Thu, 4 Jun 2026 21:57:01 -0400
+Subject: [PATCH] Add ray traced exposed anti-xray blocks
+
+
+diff --git a/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java b/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
+index 6c88e52757d4d05580d5476e9d8b3b7a97242f9f..41778ccb86990bce44fcfb3fce626bf446dec4f4 100644
+--- a/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
++++ b/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
+@@ -449,6 +449,10 @@ public class PaperWorldConfig {
+     public ChunkEdgeMode chunkEdgeMode;
+     public int maxChunkSectionIndex;
+     public int updateRadius;
++    public boolean rayTraceExposedBlocks;
++    public int rayTraceDistance;
++    public int rayTraceInterval;
++    public int rayTraceMaxBlockCountPerChunk;
+     public List<Object> hiddenBlocks;
+     public List<Object> replacementBlocks;
+     private void antiXray() {
+@@ -461,9 +465,13 @@ public class PaperWorldConfig {
+         maxChunkSectionIndex = getInt("anti-xray.max-chunk-section-index", 3);
+         maxChunkSectionIndex = maxChunkSectionIndex > 15 ? 15 : maxChunkSectionIndex;
+         updateRadius = getInt("anti-xray.update-radius", 2);
+-        hiddenBlocks = getList("anti-xray.hidden-blocks", Arrays.asList((Object) "gold_ore", "iron_ore", "coal_ore", "lapis_ore", "mossy_cobblestone", "obsidian", "chest", "diamond_ore", "redstone_ore", "lit_redstone_ore", "clay", "emerald_ore", "ender_chest"));
++        rayTraceExposedBlocks = getBoolean("anti-xray.ray-trace-exposed-blocks", true);
++        rayTraceDistance = Math.max(getInt("anti-xray.ray-trace-distance", 64), 0);
++        rayTraceInterval = Math.max(getInt("anti-xray.ray-trace-interval", 5), 1);
++        rayTraceMaxBlockCountPerChunk = Math.max(getInt("anti-xray.ray-trace-max-block-count-per-chunk", 100), 0);
++        hiddenBlocks = getList("anti-xray.hidden-blocks", Arrays.asList((Object) "gold_ore", "iron_ore", "coal_ore", "lapis_ore", "mossy_cobblestone", "obsidian", "chest", "trapped_chest", "mob_spawner", "diamond_ore", "redstone_ore", "lit_redstone_ore", "clay", "emerald_ore", "ender_chest"));
+         replacementBlocks = getList("anti-xray.replacement-blocks", Arrays.asList((Object) "stone", "planks"));
+-        log("Anti-Xray: " + (antiXray ? "enabled" : "disabled") + " / Engine Mode: " + engineMode.getDescription() + " / Chunk Edge Mode: " + chunkEdgeMode.getDescription() + " / Up to " + ((maxChunkSectionIndex + 1) * 16) + " blocks / Update Radius: " + updateRadius);
++        log("Anti-Xray: " + (antiXray ? "enabled" : "disabled") + " / Engine Mode: " + engineMode.getDescription() + " / Chunk Edge Mode: " + chunkEdgeMode.getDescription() + " / Up to " + ((maxChunkSectionIndex + 1) * 16) + " blocks / Update Radius: " + updateRadius + " / Ray Trace Exposed Blocks: " + rayTraceExposedBlocks);
+     }
+ 
+     public int expMergeMaxValue;
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
+index 8d1998a085bc7b7b1f4167b506103ea7ce9f557c..757930a8068c51ca8a953ff75d70809418687c1d 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
+@@ -25,6 +25,14 @@ public class ChunkPacketBlockController {
+         return null;
+     }
+ 
++    public void preparePacket(PacketPlayOutMapChunk packetPlayOutMapChunk, PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo) {
++
++    }
++
++    public boolean shouldHideTileEntity(PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo, BlockPosition blockPosition) {
++        return false;
++    }
++
+     public void modifyBlocks(PacketPlayOutMapChunk packetPlayOutMapChunk, PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo) {
+         packetPlayOutMapChunk.setReady(true);
+     }
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+index 558188fa1dc7a7f18988d040aaee26de035ad01e..0c09f669949b58b64551f7fa6f188f3e68d15864 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+@@ -1,9 +1,15 @@
+ package com.destroystokyo.paper.antixray;
+ 
++import java.lang.ref.WeakReference;
+ import java.util.ArrayList;
++import java.util.Collections;
++import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.List;
++import java.util.Map;
+ import java.util.Set;
++import java.util.WeakHashMap;
++import java.util.concurrent.ConcurrentHashMap;
+ import java.util.concurrent.Executors;
+ import java.util.concurrent.ExecutorService;
+ 
+@@ -13,25 +19,49 @@ import net.minecraft.server.Block;
+ import net.minecraft.server.BlockPosition;
+ import net.minecraft.server.Blocks;
+ import net.minecraft.server.Chunk;
++import net.minecraft.server.ChunkCoordIntPair;
+ import net.minecraft.server.ChunkSection;
+ import net.minecraft.server.DataPalette;
+ import net.minecraft.server.DataPaletteBlock;
+ import net.minecraft.server.DataPaletteGlobal;
++import net.minecraft.server.EntityPlayer;
+ import net.minecraft.server.IBlockData;
++import net.minecraft.server.MovingObjectPosition;
++import net.minecraft.server.Packet;
++import net.minecraft.server.PacketPlayOutBlockChange;
+ import net.minecraft.server.PacketPlayOutMapChunk;
++import net.minecraft.server.PacketPlayOutTileEntityData;
++import net.minecraft.server.PlayerChunk;
++import net.minecraft.server.TileEntity;
++import net.minecraft.server.Vec3D;
+ import net.minecraft.server.World;
++import net.minecraft.server.WorldServer;
+ 
+ import org.bukkit.World.Environment;
+ 
+ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockController {
+ 
+     private static ExecutorService executorServiceInstance = null;
++    private static final double[][] RAY_TRACE_TARGET_OFFSETS = {
++            {0.5D, 0.5D, 0.5D},
++            {0.125D, 0.5D, 0.5D},
++            {0.875D, 0.5D, 0.5D},
++            {0.5D, 0.125D, 0.5D},
++            {0.5D, 0.875D, 0.5D},
++            {0.5D, 0.5D, 0.125D},
++            {0.5D, 0.5D, 0.875D}
++    };
+     private final ExecutorService executorService;
+     private final boolean asynchronous;
+     private final EngineMode engineMode;
+     private final ChunkEdgeMode chunkEdgeMode;
+     private final int maxChunkSectionIndex;
+     private final int updateRadius;
++    private final boolean rayTraceExposedBlocks;
++    private final int rayTraceDistance;
++    private final double rayTraceDistanceSquared;
++    private final int rayTraceInterval;
++    private final int rayTraceMaxBlockCountPerChunk;
+     private final IBlockData[] predefinedBlockData;
+     private final IBlockData[] predefinedBlockDataStone;
+     private final IBlockData[] predefinedBlockDataNetherrack;
+@@ -43,7 +73,11 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     private final int[] predefinedBlockDataBitsEndStoneGlobal;
+     private final boolean[] solidGlobal = new boolean[Block.REGISTRY_ID.size()];
+     private final boolean[] obfuscateGlobal = new boolean[Block.REGISTRY_ID.size()];
++    private final boolean[] rayTraceGlobal = new boolean[Block.REGISTRY_ID.size()];
+     private final ChunkSection[] emptyNearbyChunkSections = {Chunk.EMPTY_CHUNK_SECTION, Chunk.EMPTY_CHUNK_SECTION, Chunk.EMPTY_CHUNK_SECTION, Chunk.EMPTY_CHUNK_SECTION};
++    private final Map<Long, RayTraceChunk> rayTraceChunks = new ConcurrentHashMap<>();
++    private final Map<EntityPlayer, Set<BlockPosition>> visibleRayTraceBlocks = Collections.synchronizedMap(new WeakHashMap<EntityPlayer, Set<BlockPosition>>());
++    private final Map<EntityPlayer, Map<BlockPosition, Integer>> invisibleRayTraceBlockMisses = Collections.synchronizedMap(new WeakHashMap<EntityPlayer, Map<BlockPosition, Integer>>());
+ 
+     public ChunkPacketBlockControllerAntiXray(PaperWorldConfig paperWorldConfig) {
+         asynchronous = paperWorldConfig.asynchronous;
+@@ -51,6 +85,11 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         chunkEdgeMode = paperWorldConfig.chunkEdgeMode;
+         maxChunkSectionIndex = paperWorldConfig.maxChunkSectionIndex;
+         updateRadius = paperWorldConfig.updateRadius;
++        rayTraceExposedBlocks = paperWorldConfig.rayTraceExposedBlocks && paperWorldConfig.rayTraceDistance > 0 && paperWorldConfig.rayTraceMaxBlockCountPerChunk > 0;
++        rayTraceDistance = paperWorldConfig.rayTraceDistance;
++        rayTraceDistanceSquared = (double) rayTraceDistance * (double) rayTraceDistance;
++        rayTraceInterval = paperWorldConfig.rayTraceInterval;
++        rayTraceMaxBlockCountPerChunk = paperWorldConfig.rayTraceMaxBlockCountPerChunk;
+ 
+         if (asynchronous) {
+             executorService = getExecutorServiceInstance();
+@@ -78,8 +117,11 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             for (Object id : paperWorldConfig.hiddenBlocks) {
+                 Block block = Block.getByName(String.valueOf(id));
+ 
+-                if (block != null && !block.isTileEntity()) {
++                if (block != null && (!block.isTileEntity() || isSupportedRayTraceTileEntityBlock(block))) {
+                     toObfuscate.add(id);
++                }
++
++                if (block != null && !block.isTileEntity()) {
+                     predefinedBlockDataSet.add(block.getBlockData());
+                 }
+             }
+@@ -106,7 +148,15 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             Block block = Block.getByName(String.valueOf(id));
+ 
+             if (block != null) {
+-                obfuscateGlobal[Block.REGISTRY_ID.getId(block.getBlockData())] = true;
++                setBlockDataBits(obfuscateGlobal, block);
++            }
++        }
++
++        for (Object id : paperWorldConfig.hiddenBlocks) {
++            Block block = Block.getByName(String.valueOf(id));
++
++            if (block != null && (!block.isTileEntity() || isSupportedRayTraceTileEntityBlock(block))) {
++                setBlockDataBits(rayTraceGlobal, block);
+             }
+         }
+ 
+@@ -127,6 +177,16 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         return executorServiceInstance;
+     }
+ 
++    private static boolean isSupportedRayTraceTileEntityBlock(Block block) {
++        return block == Blocks.MOB_SPAWNER || block == Blocks.CHEST || block == Blocks.TRAPPED_CHEST || block == Blocks.ENDER_CHEST;
++    }
++
++    private static void setBlockDataBits(boolean[] blockDataBits, Block block) {
++        for (IBlockData blockData : block.s().a()) {
++            blockDataBits[Block.REGISTRY_ID.getId(blockData)] = true;
++        }
++    }
++
+     @Override
+     public IBlockData[] getPredefinedBlockData(Chunk chunk, int chunkSectionIndex) {
+         //Return the block data which should be added to the data palettes so that they can be used for the obfuscation
+@@ -176,6 +236,39 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         return packetPlayOutMapChunkInfoAntiXray;
+     }
+ 
++    @Override
++    public void preparePacket(PacketPlayOutMapChunk packetPlayOutMapChunk, PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo) {
++        if (!rayTraceExposedBlocks || !(packetPlayOutMapChunkInfo instanceof PacketPlayOutMapChunkInfoAntiXray)) {
++            return;
++        }
++
++        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = (PacketPlayOutMapChunkInfoAntiXray) packetPlayOutMapChunkInfo;
++        List<BlockPosition> rayTraceBlocks = collectRayTraceBlocks(packetPlayOutMapChunkInfoAntiXray);
++        packetPlayOutMapChunkInfoAntiXray.setRayTraceBlocks(rayTraceBlocks);
++        updateRayTraceBlocks(packetPlayOutMapChunkInfoAntiXray.getChunk(), packetPlayOutMapChunkInfoAntiXray.getChunkSectionSelector(), rayTraceBlocks);
++
++        if (!rayTraceBlocks.isEmpty()) {
++            packetPlayOutMapChunk.setRayTraceAntiXray(this, packetPlayOutMapChunkInfoAntiXray.getChunk(), rayTraceBlocks);
++        }
++    }
++
++    @Override
++    public boolean shouldHideTileEntity(PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo, BlockPosition blockPosition) {
++        if (!rayTraceExposedBlocks || !(packetPlayOutMapChunkInfo instanceof PacketPlayOutMapChunkInfoAntiXray)) {
++            return false;
++        }
++
++        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = (PacketPlayOutMapChunkInfoAntiXray) packetPlayOutMapChunkInfo;
++        List<BlockPosition> rayTraceBlocks = packetPlayOutMapChunkInfoAntiXray.getRayTraceBlocks();
++
++        if (rayTraceBlocks == null || !rayTraceBlocks.contains(blockPosition)) {
++            return false;
++        }
++
++        IBlockData blockData = packetPlayOutMapChunkInfoAntiXray.getChunk().world.getTypeIfLoaded(blockPosition);
++        return blockData != null && isSupportedRayTraceTileEntityBlock(blockData.getBlock());
++    }
++
+     @Override
+     public void modifyBlocks(PacketPlayOutMapChunk packetPlayOutMapChunk, PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo) {
+         if (asynchronous) {
+@@ -287,9 +380,420 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             }
+         }
+ 
++        hideRayTraceBlocks(packetPlayOutMapChunkInfoAntiXray);
+         packetPlayOutMapChunkInfoAntiXray.getPacketPlayOutMapChunk().setReady(true);
+     }
+ 
++    private List<BlockPosition> collectRayTraceBlocks(PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray) {
++        List<BlockPosition> rayTraceBlocks = new ArrayList<>();
++        Chunk chunk = packetPlayOutMapChunkInfoAntiXray.getChunk();
++        ChunkSection[] chunkSections = chunk.getSections();
++        Chunk[] nearbyChunks = packetPlayOutMapChunkInfoAntiXray.getNearbyChunks();
++        int minBlockX = chunk.locX << 4;
++        int minBlockZ = chunk.locZ << 4;
++
++        for (int chunkSectionIndex = 0; chunkSectionIndex <= maxChunkSectionIndex && rayTraceBlocks.size() < rayTraceMaxBlockCountPerChunk; chunkSectionIndex++) {
++            if (!packetPlayOutMapChunkInfoAntiXray.isWritten(chunkSectionIndex) || packetPlayOutMapChunkInfoAntiXray.getPredefinedBlockData(chunkSectionIndex) == null) {
++                continue;
++            }
++
++            ChunkSection chunkSection = chunkSections[chunkSectionIndex];
++
++            if (chunkSection == Chunk.EMPTY_CHUNK_SECTION) {
++                continue;
++            }
++
++            int baseY = chunkSectionIndex << 4;
++
++            for (int y = 0; y < 16 && rayTraceBlocks.size() < rayTraceMaxBlockCountPerChunk; y++) {
++                int blockY = baseY + y;
++
++                for (int z = 0; z < 16 && rayTraceBlocks.size() < rayTraceMaxBlockCountPerChunk; z++) {
++                    for (int x = 0; x < 16 && rayTraceBlocks.size() < rayTraceMaxBlockCountPerChunk; x++) {
++                        IBlockData blockData = chunkSection.getType(x, y, z);
++
++                        if (rayTraceGlobal[Block.REGISTRY_ID.getId(blockData)] && isExposed(chunk, nearbyChunks, x, blockY, z)) {
++                            rayTraceBlocks.add(new BlockPosition(minBlockX + x, blockY, minBlockZ + z));
++                        }
++                    }
++                }
++            }
++        }
++
++        return rayTraceBlocks;
++    }
++
++    private boolean isExposed(Chunk chunk, Chunk[] nearbyChunks, int x, int y, int z) {
++        return isTransparent(chunk, nearbyChunks, x - 1, y, z)
++                || isTransparent(chunk, nearbyChunks, x + 1, y, z)
++                || isTransparent(chunk, nearbyChunks, x, y - 1, z)
++                || isTransparent(chunk, nearbyChunks, x, y + 1, z)
++                || isTransparent(chunk, nearbyChunks, x, y, z - 1)
++                || isTransparent(chunk, nearbyChunks, x, y, z + 1);
++    }
++
++    private boolean isTransparent(Chunk chunk, Chunk[] nearbyChunks, int x, int y, int z) {
++        if (y < 0 || y >= 256) {
++            return true;
++        }
++
++        Chunk targetChunk = chunk;
++
++        if (x < 0) {
++            targetChunk = nearbyChunks[0];
++            x = 15;
++        } else if (x > 15) {
++            targetChunk = nearbyChunks[1];
++            x = 0;
++        } else if (z < 0) {
++            targetChunk = nearbyChunks[2];
++            z = 15;
++        } else if (z > 15) {
++            targetChunk = nearbyChunks[3];
++            z = 0;
++        }
++
++        if (targetChunk == null) {
++            return true;
++        }
++
++        ChunkSection chunkSection = targetChunk.getSections()[y >> 4];
++        return chunkSection == Chunk.EMPTY_CHUNK_SECTION || !solidGlobal[Block.REGISTRY_ID.getId(chunkSection.getType(x, y & 15, z))];
++    }
++
++    private void hideRayTraceBlocks(PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray) {
++        List<BlockPosition> rayTraceBlocks = packetPlayOutMapChunkInfoAntiXray.getRayTraceBlocks();
++
++        if (!rayTraceExposedBlocks || rayTraceBlocks == null || rayTraceBlocks.isEmpty()) {
++            return;
++        }
++
++        Set<Long> rayTraceBlockSet = new HashSet<>();
++        boolean[] sectionHasRayTraceBlocks = new boolean[16];
++
++        for (BlockPosition rayTraceBlock : rayTraceBlocks) {
++            rayTraceBlockSet.add(rayTraceBlock.asLong());
++            sectionHasRayTraceBlocks[rayTraceBlock.getY() >> 4] = true;
++        }
++
++        dataBitsWriter.setDataBits(packetPlayOutMapChunkInfoAntiXray.getData());
++        Chunk chunk = packetPlayOutMapChunkInfoAntiXray.getChunk();
++        int minBlockX = chunk.locX << 4;
++        int minBlockZ = chunk.locZ << 4;
++
++        for (int chunkSectionIndex = 0; chunkSectionIndex <= maxChunkSectionIndex; chunkSectionIndex++) {
++            if (!sectionHasRayTraceBlocks[chunkSectionIndex] || !packetPlayOutMapChunkInfoAntiXray.isWritten(chunkSectionIndex) || packetPlayOutMapChunkInfoAntiXray.getPredefinedBlockData(chunkSectionIndex) == null) {
++                continue;
++            }
++
++            int[] predefinedBlockDataBitsTemp = getPredefinedBlockDataBits(packetPlayOutMapChunkInfoAntiXray, chunkSectionIndex);
++            dataBitsWriter.setBitsPerValue(packetPlayOutMapChunkInfoAntiXray.getBitsPerValue(chunkSectionIndex));
++            dataBitsWriter.setIndex(packetPlayOutMapChunkInfoAntiXray.getDataBitsIndex(chunkSectionIndex));
++            int baseY = chunkSectionIndex << 4;
++            int counter = 0;
++
++            for (int y = 0; y < 16; y++) {
++                int blockY = baseY + y;
++
++                for (int z = 0; z < 16; z++) {
++                    for (int x = 0; x < 16; x++) {
++                        if (rayTraceBlockSet.contains(new BlockPosition(minBlockX + x, blockY, minBlockZ + z).asLong())) {
++                            if (counter >= predefinedBlockDataBitsTemp.length) {
++                                counter = 0;
++                            }
++
++                            dataBitsWriter.write(predefinedBlockDataBitsTemp[counter++]);
++                        } else {
++                            dataBitsWriter.skip();
++                        }
++                    }
++                }
++            }
++
++            dataBitsWriter.finish();
++        }
++    }
++
++    private int[] getPredefinedBlockDataBits(PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray, int chunkSectionIndex) {
++        if (!(packetPlayOutMapChunkInfoAntiXray.getDataPalette(chunkSectionIndex) instanceof DataPaletteGlobal)) {
++            return predefinedBlockDataBits;
++        }
++
++        if (engineMode != EngineMode.HIDE) {
++            return predefinedBlockDataBitsGlobal;
++        }
++
++        switch (packetPlayOutMapChunkInfoAntiXray.getChunk().world.getWorld().getEnvironment()) {
++            case NETHER:
++                return predefinedBlockDataBitsNetherrackGlobal;
++            case THE_END:
++                return predefinedBlockDataBitsEndStoneGlobal;
++            default:
++                return predefinedBlockDataBitsStoneGlobal;
++        }
++    }
++
++    private void updateRayTraceBlocks(Chunk chunk, int chunkSectionSelector, List<BlockPosition> rayTraceBlocks) {
++        long key = ChunkCoordIntPair.asLong(chunk.locX, chunk.locZ);
++
++        if (chunkSectionSelector == 0xffff || !rayTraceChunks.containsKey(key)) {
++            if (rayTraceBlocks.isEmpty()) {
++                rayTraceChunks.remove(key);
++            } else {
++                rayTraceChunks.put(key, new RayTraceChunk(chunk, rayTraceBlocks));
++            }
++
++            return;
++        }
++
++        RayTraceChunk previousRayTraceChunk = rayTraceChunks.get(key);
++        List<BlockPosition> mergedRayTraceBlocks = new ArrayList<>();
++
++        if (previousRayTraceChunk != null) {
++            for (BlockPosition rayTraceBlock : previousRayTraceChunk.getBlocks()) {
++                int sectionIndex = rayTraceBlock.getY() >> 4;
++
++                if ((chunkSectionSelector & (1 << sectionIndex)) == 0) {
++                    mergedRayTraceBlocks.add(rayTraceBlock);
++                }
++            }
++        }
++
++        mergedRayTraceBlocks.addAll(rayTraceBlocks);
++
++        if (mergedRayTraceBlocks.isEmpty()) {
++            rayTraceChunks.remove(key);
++        } else {
++            rayTraceChunks.put(key, new RayTraceChunk(chunk, mergedRayTraceBlocks));
++        }
++    }
++
++    public void appendRayTraceBlockUpdates(EntityPlayer player, Chunk chunk, List<BlockPosition> rayTraceBlocks, List<Packet> extraPackets) {
++        if (!rayTraceExposedBlocks || player.world != chunk.world) {
++            return;
++        }
++
++        Set<BlockPosition> visibleBlocks = getVisibleRayTraceBlocks(player);
++        Map<BlockPosition, Integer> invisibleBlockMisses = getInvisibleRayTraceBlockMisses(player);
++
++        for (BlockPosition rayTraceBlock : rayTraceBlocks) {
++            if (isRayTraceVisible(player, rayTraceBlock)) {
++                IBlockData blockData = player.world.getTypeIfLoaded(rayTraceBlock);
++
++                if (blockData != null && rayTraceGlobal[Block.REGISTRY_ID.getId(blockData)]) {
++                    extraPackets.add(new PacketPlayOutBlockChange(rayTraceBlock, blockData));
++                    addTileEntityUpdate(player.world, rayTraceBlock, extraPackets);
++                    visibleBlocks.add(rayTraceBlock);
++                    invisibleBlockMisses.remove(rayTraceBlock);
++                }
++            } else {
++                visibleBlocks.remove(rayTraceBlock);
++                invisibleBlockMisses.remove(rayTraceBlock);
++            }
++        }
++    }
++
++    public void tickPlayer(EntityPlayer player) {
++        if (!rayTraceExposedBlocks || player.ticksLived % rayTraceInterval != 0 || !(player.world instanceof WorldServer) || player.playerConnection == null) {
++            return;
++        }
++
++        Set<BlockPosition> previousVisibleBlocks = getVisibleRayTraceBlocks(player);
++        Map<BlockPosition, Integer> invisibleBlockMisses = getInvisibleRayTraceBlockMisses(player);
++        Set<BlockPosition> currentVisibleBlocks = new HashSet<>();
++        int playerChunkX = (int) Math.floor(player.locX) >> 4;
++        int playerChunkZ = (int) Math.floor(player.locZ) >> 4;
++        int chunkRadius = (rayTraceDistance + 15) >> 4;
++        WorldServer world = (WorldServer) player.world;
++
++        for (int chunkX = playerChunkX - chunkRadius; chunkX <= playerChunkX + chunkRadius; chunkX++) {
++            for (int chunkZ = playerChunkZ - chunkRadius; chunkZ <= playerChunkZ + chunkRadius; chunkZ++) {
++                RayTraceChunk rayTraceChunk = rayTraceChunks.get(ChunkCoordIntPair.asLong(chunkX, chunkZ));
++
++                if (rayTraceChunk == null) {
++                    continue;
++                }
++
++                Chunk chunk = rayTraceChunk.getChunk();
++
++                if (chunk == null || !chunk.isLoaded()) {
++                    rayTraceChunks.remove(ChunkCoordIntPair.asLong(chunkX, chunkZ), rayTraceChunk);
++                    continue;
++                }
++
++                PlayerChunk playerChunk = world.getPlayerChunkMap().getChunk(chunkX, chunkZ);
++
++                if (playerChunk == null || !playerChunk.d(player)) {
++                    continue;
++                }
++
++                for (BlockPosition rayTraceBlock : rayTraceChunk.getBlocks()) {
++                    if (isWithinRayTraceDistance(player, rayTraceBlock) && isRayTraceVisible(player, rayTraceBlock)) {
++                        IBlockData blockData = player.world.getTypeIfLoaded(rayTraceBlock);
++
++                        if (blockData != null && rayTraceGlobal[Block.REGISTRY_ID.getId(blockData)]) {
++                            currentVisibleBlocks.add(rayTraceBlock);
++                        }
++                    }
++                }
++            }
++        }
++
++        for (BlockPosition rayTraceBlock : currentVisibleBlocks) {
++            invisibleBlockMisses.remove(rayTraceBlock);
++
++            if (!previousVisibleBlocks.contains(rayTraceBlock)) {
++                IBlockData blockData = player.world.getTypeIfLoaded(rayTraceBlock);
++
++                if (blockData != null) {
++                    player.playerConnection.sendPacket(new PacketPlayOutBlockChange(rayTraceBlock, blockData));
++                    sendTileEntityUpdate(player, rayTraceBlock);
++                }
++            }
++        }
++
++        for (BlockPosition rayTraceBlock : previousVisibleBlocks) {
++            if (!currentVisibleBlocks.contains(rayTraceBlock) && isChunkSentToPlayer(player, rayTraceBlock)) {
++                IBlockData blockData = player.world.getTypeIfLoaded(rayTraceBlock);
++
++                if (blockData == null || !rayTraceGlobal[Block.REGISTRY_ID.getId(blockData)]) {
++                    invisibleBlockMisses.remove(rayTraceBlock);
++                    continue;
++                }
++
++                int misses = invisibleBlockMisses.containsKey(rayTraceBlock) ? invisibleBlockMisses.get(rayTraceBlock) + 1 : 1;
++
++                if (misses < 3) {
++                    invisibleBlockMisses.put(rayTraceBlock, misses);
++                    currentVisibleBlocks.add(rayTraceBlock);
++                    continue;
++                }
++
++                invisibleBlockMisses.remove(rayTraceBlock);
++                player.playerConnection.sendPacket(new PacketPlayOutBlockChange(rayTraceBlock, getReplacementBlockData(player.world, rayTraceBlock.getY())));
++            }
++        }
++
++        previousVisibleBlocks.clear();
++        previousVisibleBlocks.addAll(currentVisibleBlocks);
++    }
++
++    private Set<BlockPosition> getVisibleRayTraceBlocks(EntityPlayer player) {
++        synchronized (visibleRayTraceBlocks) {
++            Set<BlockPosition> visibleBlocks = visibleRayTraceBlocks.get(player);
++
++            if (visibleBlocks == null) {
++                visibleBlocks = new HashSet<>();
++                visibleRayTraceBlocks.put(player, visibleBlocks);
++            }
++
++            return visibleBlocks;
++        }
++    }
++
++    private Map<BlockPosition, Integer> getInvisibleRayTraceBlockMisses(EntityPlayer player) {
++        synchronized (invisibleRayTraceBlockMisses) {
++            Map<BlockPosition, Integer> invisibleBlockMisses = invisibleRayTraceBlockMisses.get(player);
++
++            if (invisibleBlockMisses == null) {
++                invisibleBlockMisses = new HashMap<>();
++                invisibleRayTraceBlockMisses.put(player, invisibleBlockMisses);
++            }
++
++            return invisibleBlockMisses;
++        }
++    }
++
++    private void addTileEntityUpdate(World world, BlockPosition blockPosition, List<Packet> packets) {
++        PacketPlayOutTileEntityData packet = getTileEntityUpdatePacket(world, blockPosition);
++
++        if (packet != null) {
++            packets.add(packet);
++        }
++    }
++
++    private void sendTileEntityUpdate(EntityPlayer player, BlockPosition blockPosition) {
++        PacketPlayOutTileEntityData packet = getTileEntityUpdatePacket(player.world, blockPosition);
++
++        if (packet != null) {
++            player.playerConnection.sendPacket(packet);
++        }
++    }
++
++    private PacketPlayOutTileEntityData getTileEntityUpdatePacket(World world, BlockPosition blockPosition) {
++        IBlockData blockData = world.getTypeIfLoaded(blockPosition);
++
++        if (blockData == null || !isSupportedRayTraceTileEntityBlock(blockData.getBlock())) {
++            return null;
++        }
++
++        Chunk chunk = world.getChunkIfLoaded(blockPosition);
++
++        if (chunk == null) {
++            return null;
++        }
++
++        TileEntity tileEntity = chunk.getTileEntityImmediately(blockPosition);
++        return tileEntity == null ? null : tileEntity.getUpdatePacket();
++    }
++
++    private boolean isWithinRayTraceDistance(EntityPlayer player, BlockPosition blockPosition) {
++        double x = player.locX - ((double) blockPosition.getX() + 0.5D);
++        double y = player.locY + (double) player.getHeadHeight() - ((double) blockPosition.getY() + 0.5D);
++        double z = player.locZ - ((double) blockPosition.getZ() + 0.5D);
++        return x * x + y * y + z * z <= rayTraceDistanceSquared;
++    }
++
++    private boolean isRayTraceVisible(EntityPlayer player, BlockPosition blockPosition) {
++        if (!isWithinRayTraceDistance(player, blockPosition)) {
++            return false;
++        }
++
++        Vec3D eye = new Vec3D(player.locX, player.locY + (double) player.getHeadHeight(), player.locZ);
++        BlockPosition eyeBlock = new BlockPosition(eye.x, eye.y, eye.z);
++        BlockPosition minBlock = new BlockPosition(Math.min(eyeBlock.getX(), blockPosition.getX()), Math.min(eyeBlock.getY(), blockPosition.getY()), Math.min(eyeBlock.getZ(), blockPosition.getZ()));
++        BlockPosition maxBlock = new BlockPosition(Math.max(eyeBlock.getX(), blockPosition.getX()), Math.max(eyeBlock.getY(), blockPosition.getY()), Math.max(eyeBlock.getZ(), blockPosition.getZ()));
++
++        if (!player.world.areChunksLoadedBetween(minBlock, maxBlock, false)) {
++            return false;
++        }
++
++        for (double[] offset : RAY_TRACE_TARGET_OFFSETS) {
++            Vec3D target = new Vec3D((double) blockPosition.getX() + offset[0], (double) blockPosition.getY() + offset[1], (double) blockPosition.getZ() + offset[2]);
++            MovingObjectPosition movingObjectPosition = player.world.rayTrace(eye, target, false, true, false);
++
++            if (movingObjectPosition == null || movingObjectPosition.type == MovingObjectPosition.EnumMovingObjectType.MISS || blockPosition.equals(movingObjectPosition.a())) {
++                return true;
++            }
++        }
++
++        return false;
++    }
++
++    private boolean isChunkSentToPlayer(EntityPlayer player, BlockPosition blockPosition) {
++        if (!(player.world instanceof WorldServer)) {
++            return false;
++        }
++
++        PlayerChunk playerChunk = ((WorldServer) player.world).getPlayerChunkMap().getChunk(blockPosition.getX() >> 4, blockPosition.getZ() >> 4);
++        return playerChunk != null && playerChunk.d(player);
++    }
++
++    private IBlockData getReplacementBlockData(World world, int y) {
++        if (engineMode != EngineMode.HIDE) {
++            return predefinedBlockData[0];
++        }
++
++        switch (world.getWorld().getEnvironment()) {
++            case NETHER:
++                return Blocks.NETHERRACK.getBlockData();
++            case THE_END:
++                return Blocks.END_STONE.getBlockData();
++            default:
++                return Blocks.STONE.getBlockData();
++        }
++    }
++
+     private int obfuscateLayer(int y, DataBitsReader dataBitsReader, DataBitsWriter dataBitsWriter, boolean[] solid, boolean[] obfuscate, int[] predefinedBlockDataBits, boolean[][] current, boolean[][] next, boolean[][] nextNext, ChunkSection[] nearbyChunkSections, int counter) {
+         //First block of first line
+         int dataBits = dataBitsReader.read();
+@@ -580,6 +1084,25 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         }
+     }
+ 
++    private static final class RayTraceChunk {
++
++        private final WeakReference<Chunk> chunk;
++        private final List<BlockPosition> blocks;
++
++        private RayTraceChunk(Chunk chunk, List<BlockPosition> blocks) {
++            this.chunk = new WeakReference<>(chunk);
++            this.blocks = blocks;
++        }
++
++        private Chunk getChunk() {
++            return chunk.get();
++        }
++
++        private List<BlockPosition> getBlocks() {
++            return blocks;
++        }
++    }
++
+     public enum EngineMode {
+ 
+         HIDE(1, "hide ores"),
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
+index 8ea2beb5973c8eeb4a6f6b6327fe71c6699ae320..8c46bd8a89b19e4c72b7d704feb431385320e5bf 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
+@@ -1,11 +1,15 @@
+ package com.destroystokyo.paper.antixray;
+ 
++import java.util.List;
++
+ import net.minecraft.server.Chunk;
++import net.minecraft.server.BlockPosition;
+ import net.minecraft.server.PacketPlayOutMapChunk;
+ 
+ public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo implements Runnable {
+ 
+     private Chunk[] nearbyChunks;
++    private List<BlockPosition> rayTraceBlocks;
+     private final ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray;
+ 
+     public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray) {
+@@ -21,6 +25,14 @@ public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo
+         this.nearbyChunks = nearbyChunks;
+     }
+ 
++    public List<BlockPosition> getRayTraceBlocks() {
++        return rayTraceBlocks;
++    }
++
++    public void setRayTraceBlocks(List<BlockPosition> rayTraceBlocks) {
++        this.rayTraceBlocks = rayTraceBlocks;
++    }
++
+     @Override
+     public void run() {
+         chunkPacketBlockControllerAntiXray.obfuscate(this);
+diff --git a/src/main/java/net/minecraft/server/EntityPlayer.java b/src/main/java/net/minecraft/server/EntityPlayer.java
+index fe8482c5299fc627022f0841ac252dd82c37efaa..54623b15c568c451ea38e7e71bc942ba4646f679 100644
+--- a/src/main/java/net/minecraft/server/EntityPlayer.java
++++ b/src/main/java/net/minecraft/server/EntityPlayer.java
+@@ -478,6 +478,9 @@ public class EntityPlayer extends EntityHuman implements ICrafting {
+                 this.oldLevel = this.expLevel;
+             }
+             // CraftBukkit end
++            if (this.world.chunkPacketBlockController instanceof com.destroystokyo.paper.antixray.ChunkPacketBlockControllerAntiXray) {
++                ((com.destroystokyo.paper.antixray.ChunkPacketBlockControllerAntiXray) this.world.chunkPacketBlockController).tickPlayer(this);
++            }
+             // Beast start - Delayed chunks
+             sendDelayedChunks();
+             this.chunkSendLimitLeft = this.chunkSendLimit;
+diff --git a/src/main/java/net/minecraft/server/PacketPlayOutMapChunk.java b/src/main/java/net/minecraft/server/PacketPlayOutMapChunk.java
+index d8fb3bc9eedd46b505cfe9fecd916d035b486280..a73c2bfd992a85744890136922ba2ea8037bf6f3 100644
+--- a/src/main/java/net/minecraft/server/PacketPlayOutMapChunk.java
++++ b/src/main/java/net/minecraft/server/PacketPlayOutMapChunk.java
+@@ -7,8 +7,10 @@ import java.io.IOException;
+ import java.util.Iterator;
+ import java.util.List;
+ import java.util.Map.Entry;
++import javax.annotation.Nullable;
+ 
+ // Paper start
++import com.destroystokyo.paper.antixray.ChunkPacketBlockControllerAntiXray; // Anti-Xray
+ import com.destroystokyo.paper.antixray.PacketPlayOutMapChunkInfo; // Anti-Xray
+ // Paper end
+ 
+@@ -22,6 +24,10 @@ public class PacketPlayOutMapChunk implements Packet<PacketListenerPlayOut> {
+     private boolean f;
+     private byte[] nbtData; // Beast - Cache chunk NBT
+     private volatile boolean ready = false; // Paper - Async-Anti-Xray - Ready flag for the network manager
++    private ChunkPacketBlockControllerAntiXray rayTraceAntiXrayController; // Beast - Anti-Xray exposed block ray tracing
++    private Chunk rayTraceAntiXrayChunk; // Beast - Anti-Xray exposed block ray tracing
++    private List<BlockPosition> rayTraceAntiXrayBlocks; // Beast - Anti-Xray exposed block ray tracing
++    private int antiXrayBaseExtraPacketCount; // Beast - Anti-Xray exposed block ray tracing
+ 
+     // Paper start - Async-Anti-Xray - Set the ready flag to true
+     public PacketPlayOutMapChunk() {
+@@ -53,6 +59,7 @@ public class PacketPlayOutMapChunk implements Packet<PacketListenerPlayOut> {
+         // Paper end
+ 
+         this.c = this.writeChunk(new PacketDataSerializer(this.g()), chunk, flag, i, packetPlayOutMapChunkInfo); // Paper - Anti-Xray - Add chunk packet info
++        chunk.world.chunkPacketBlockController.preparePacket(this, packetPlayOutMapChunkInfo); // Beast - Anti-Xray exposed block ray tracing
+         this.e = Lists.newArrayList();
+         Iterator iterator = chunk.getTileEntities().entrySet().iterator();
+         int totalSigns = 0; // Paper
+@@ -65,6 +72,10 @@ public class PacketPlayOutMapChunk implements Packet<PacketListenerPlayOut> {
+             int j = blockposition.getY() >> 4;
+ 
+             if (this.e() || (i & 1 << j) != 0) {
++                if (chunk.world.chunkPacketBlockController.shouldHideTileEntity(packetPlayOutMapChunkInfo, blockposition)) { // Beast - Anti-Xray exposed block ray tracing
++                    continue;
++                }
++
+                 // Paper start - send signs separately
+                 if (tileentity instanceof TileEntitySign) {
+                     if (SKIP_EXCESSIVE_SIGNS_LIMIT < 0 || ++totalSigns < SKIP_EXCESSIVE_SIGNS_LIMIT) {
+@@ -106,6 +117,7 @@ public class PacketPlayOutMapChunk implements Packet<PacketListenerPlayOut> {
+         }
+         // Beast end
+ 
++        this.antiXrayBaseExtraPacketCount = this.extraPackets.size(); // Beast - Anti-Xray exposed block ray tracing
+         chunk.world.chunkPacketBlockController.modifyBlocks(this, packetPlayOutMapChunkInfo); // Paper - Anti-Xray - Modify blocks
+     }
+ 
+@@ -119,6 +131,29 @@ public class PacketPlayOutMapChunk implements Packet<PacketListenerPlayOut> {
+     }
+     // Paper end
+ 
++    // Beast start - Anti-Xray exposed block ray tracing
++    public void setRayTraceAntiXray(ChunkPacketBlockControllerAntiXray rayTraceAntiXrayController, Chunk chunk, List<BlockPosition> rayTraceAntiXrayBlocks) {
++        this.rayTraceAntiXrayController = rayTraceAntiXrayController;
++        this.rayTraceAntiXrayChunk = chunk;
++        this.rayTraceAntiXrayBlocks = rayTraceAntiXrayBlocks;
++    }
++
++    @Override
++    public void onPacketDispatch(@Nullable EntityPlayer player) {
++        if (this.rayTraceAntiXrayController == null || this.rayTraceAntiXrayBlocks == null) {
++            return;
++        }
++
++        while (this.extraPackets.size() > this.antiXrayBaseExtraPacketCount) {
++            this.extraPackets.remove(this.extraPackets.size() - 1);
++        }
++
++        if (player != null) {
++            this.rayTraceAntiXrayController.appendRayTraceBlockUpdates(player, this.rayTraceAntiXrayChunk, this.rayTraceAntiXrayBlocks, this.extraPackets);
++        }
++    }
++    // Beast end - Anti-Xray exposed block ray tracing
++
+     public void a(PacketDataSerializer packetdataserializer) throws IOException {
+         this.a = packetdataserializer.readInt();
+         this.b = packetdataserializer.readInt();
