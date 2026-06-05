@@ -40,10 +40,21 @@ index 6c88e52757d4d05580d5476e9d8b3b7a97242f9f..5ccd85511fd089358a863e36ca78d3c4
  
      public int expMergeMaxValue;
 diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
-index 8d1998a085bc7b7b1f4167b506103ea7ce9f557c..757930a8068c51ca8a953ff75d70809418687c1d 100644
+index 8d1998a085bc7b7b1f4167b506103ea7ce9f557c..6b2208a6b5f4e6670c6bde95b4ee52a3e86faf8e 100644
 --- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
 +++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
-@@ -25,6 +25,14 @@ public class ChunkPacketBlockController {
+@@ -2,8 +2,10 @@ package com.destroystokyo.paper.antixray;
+ 
+ import net.minecraft.server.BlockPosition;
+ import net.minecraft.server.Chunk;
++import net.minecraft.server.EntityPlayer;
+ import net.minecraft.server.IBlockData;
+ import net.minecraft.server.PacketPlayOutMapChunk;
++import net.minecraft.server.TileEntity;
+ import net.minecraft.server.World;
+ 
+ public class ChunkPacketBlockController {
+@@ -25,6 +27,34 @@ public class ChunkPacketBlockController {
          return null;
      }
  
@@ -55,11 +66,31 @@ index 8d1998a085bc7b7b1f4167b506103ea7ce9f557c..757930a8068c51ca8a953ff75d708094
 +        return false;
 +    }
 +
++    public boolean hasPlayerSpecificBlockData(World world, BlockPosition blockPosition) {
++        return false;
++    }
++
++    public IBlockData getPlayerSpecificBlockData(EntityPlayer player, World world, BlockPosition blockPosition) {
++        return null;
++    }
++
++    public boolean shouldSendTileEntityUpdate(EntityPlayer player, TileEntity tileEntity) {
++        return true;
++    }
++
++    public boolean shouldSendBlockAction(EntityPlayer player, World world, BlockPosition blockPosition) {
++        return true;
++    }
++
++    public boolean shouldSendLevelEvent(EntityPlayer player, World world, int eventId, BlockPosition blockPosition) {
++        return true;
++    }
++
      public void modifyBlocks(PacketPlayOutMapChunk packetPlayOutMapChunk, PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo) {
          packetPlayOutMapChunk.setReady(true);
      }
 diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
-index 558188fa1dc7a7f18988d040aaee26de035ad01e..a28851c1dc41d13bc19c277168e38af9116cabad 100644
+index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531b5555135 100644
 --- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
 +++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
 @@ -1,9 +1,15 @@
@@ -361,7 +392,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..a28851c1dc41d13bc19c277168e38af9
                  dataBitsWriter.setIndex(packetPlayOutMapChunkInfoAntiXray.getDataBitsIndex(chunkSectionIndex));
  
                  //Check if the chunk section below was not obfuscated
-@@ -287,9 +450,439 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -287,9 +450,495 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
              }
          }
  
@@ -570,6 +601,62 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..a28851c1dc41d13bc19c277168e38af9
 +        } else {
 +            rayTraceChunks.put(key, new RayTraceChunk(chunk, mergedRayTraceBlocks));
 +        }
++    }
++
++    @Override
++    public boolean hasPlayerSpecificBlockData(World world, BlockPosition blockPosition) {
++        return rayTraceExposedBlocks && isTrackedRayTraceBlock(world, blockPosition);
++    }
++
++    @Override
++    public IBlockData getPlayerSpecificBlockData(EntityPlayer player, World world, BlockPosition blockPosition) {
++        return shouldHideRayTraceBlock(player, world, blockPosition) ? getReplacementBlockData(world, blockPosition.getY()) : null;
++    }
++
++    @Override
++    public boolean shouldSendTileEntityUpdate(EntityPlayer player, TileEntity tileEntity) {
++        return tileEntity == null || !shouldHideRayTraceBlock(player, tileEntity.getWorld(), tileEntity.getPosition());
++    }
++
++    @Override
++    public boolean shouldSendBlockAction(EntityPlayer player, World world, BlockPosition blockPosition) {
++        return !shouldHideRayTraceBlock(player, world, blockPosition);
++    }
++
++    @Override
++    public boolean shouldSendLevelEvent(EntityPlayer player, World world, int eventId, BlockPosition blockPosition) {
++        return eventId != 2004 || !shouldHideRayTraceBlock(player, world, blockPosition);
++    }
++
++    private boolean shouldHideRayTraceBlock(EntityPlayer player, World world, BlockPosition blockPosition) {
++        if (!rayTraceExposedBlocks || player == null || world == null || player.world != world || !isTrackedRayTraceBlock(world, blockPosition)) {
++            return false;
++        }
++
++        if (isRayTraceVisible(player, blockPosition)) {
++            getVisibleRayTraceBlocks(player).add(blockPosition);
++            getInvisibleRayTraceBlockMisses(player).remove(blockPosition);
++            return false;
++        }
++
++        getVisibleRayTraceBlocks(player).remove(blockPosition);
++        getInvisibleRayTraceBlockMisses(player).remove(blockPosition);
++        return true;
++    }
++
++    private boolean isTrackedRayTraceBlock(World world, BlockPosition blockPosition) {
++        if (world == null) {
++            return false;
++        }
++
++        IBlockData blockData = world.getTypeIfLoaded(blockPosition);
++
++        if (blockData == null || !rayTraceGlobal[Block.REGISTRY_ID.getId(blockData)]) {
++            return false;
++        }
++
++        RayTraceChunk rayTraceChunk = rayTraceChunks.get(ChunkCoordIntPair.asLong(blockPosition.getX() >> 4, blockPosition.getZ() >> 4));
++        return rayTraceChunk != null && rayTraceChunk.getBlocks().contains(blockPosition);
 +    }
 +
 +    public void appendRayTraceBlockUpdates(EntityPlayer player, Chunk chunk, List<BlockPosition> rayTraceBlocks, List<Packet> extraPackets) {
@@ -801,7 +888,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..a28851c1dc41d13bc19c277168e38af9
      private int obfuscateLayer(int y, DataBitsReader dataBitsReader, DataBitsWriter dataBitsWriter, boolean[] solid, boolean[] obfuscate, int[] predefinedBlockDataBits, boolean[][] current, boolean[][] next, boolean[][] nextNext, ChunkSection[] nearbyChunkSections, int counter) {
          //First block of first line
          int dataBits = dataBitsReader.read();
-@@ -580,6 +1173,25 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -580,6 +1229,25 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
          }
      }
  
@@ -959,3 +1046,197 @@ index d8fb3bc9eedd46b505cfe9fecd916d035b486280..a73c2bfd992a85744890136922ba2ea8
      public void a(PacketDataSerializer packetdataserializer) throws IOException {
          this.a = packetdataserializer.readInt();
          this.b = packetdataserializer.readInt();
+diff --git a/src/main/java/net/minecraft/server/PlayerChunk.java b/src/main/java/net/minecraft/server/PlayerChunk.java
+index 41dad65791f655049a6ac73b647fda999ee8d595..ce3c24fdfccf8bfdb88db0cd00a8a973fea269e6 100644
+--- a/src/main/java/net/minecraft/server/PlayerChunk.java
++++ b/src/main/java/net/minecraft/server/PlayerChunk.java
+@@ -232,12 +232,9 @@ public class PlayerChunk {
+                 int k;
+ 
+                 if (this.dirtyCount == 1) {
+-                    i = (this.dirtyBlocks[0] >> 12 & 15) + this.location.x * 16;
+-                    j = this.dirtyBlocks[0] & 255;
+-                    k = (this.dirtyBlocks[0] >> 8 & 15) + this.location.z * 16;
+-                    BlockPosition blockposition = new BlockPosition(i, j, k);
++                    BlockPosition blockposition = this.getDirtyBlockPosition(0);
+ 
+-                    this.a((Packet) (new PacketPlayOutBlockChange(this.playerChunkMap.getWorld(), blockposition)));
++                    this.sendBlockChange(blockposition);
+                     if (this.playerChunkMap.getWorld().getType(blockposition).getBlock().isTileEntity()) {
+                         this.a(this.playerChunkMap.getWorld().getTileEntity(blockposition));
+                     }
+@@ -246,13 +243,16 @@ public class PlayerChunk {
+                     //this.chunk.world.chunkPacketBlockController.onChunkPacketCreate(this.chunk, this.h, true); // Paper - Anti-Xray - Load nearby chunks if necessary
+                     this.a((Packet) (new PacketPlayOutMapChunk(this.chunk, this.h)));
+                 } else {
+-                    this.a((Packet) (new PacketPlayOutMultiBlockChange(this.dirtyCount, this.dirtyBlocks, this.chunk)));
++                    if (this.hasPlayerSpecificBlockData()) {
++                        for (i = 0; i < this.dirtyCount; ++i) {
++                            this.sendBlockChange(this.getDirtyBlockPosition(i));
++                        }
++                    } else {
++                        this.a((Packet) (new PacketPlayOutMultiBlockChange(this.dirtyCount, this.dirtyBlocks, this.chunk)));
++                    }
+ 
+                     for (i = 0; i < this.dirtyCount; ++i) {
+-                        j = (this.dirtyBlocks[i] >> 12 & 15) + this.location.x * 16;
+-                        k = this.dirtyBlocks[i] & 255;
+-                        int l = (this.dirtyBlocks[i] >> 8 & 15) + this.location.z * 16;
+-                        BlockPosition blockposition1 = new BlockPosition(j, k, l);
++                        BlockPosition blockposition1 = this.getDirtyBlockPosition(i);
+ 
+                         if (this.playerChunkMap.getWorld().getType(blockposition1).getBlock().isTileEntity()) {
+                             this.a(this.playerChunkMap.getWorld().getTileEntity(blockposition1));
+@@ -266,12 +266,56 @@ public class PlayerChunk {
+         }
+     }
+ 
++    private BlockPosition getDirtyBlockPosition(int index) {
++        int x = (this.dirtyBlocks[index] >> 12 & 15) + this.location.x * 16;
++        int y = this.dirtyBlocks[index] & 255;
++        int z = (this.dirtyBlocks[index] >> 8 & 15) + this.location.z * 16;
++        return new BlockPosition(x, y, z);
++    }
++
++    private boolean hasPlayerSpecificBlockData() {
++        WorldServer world = this.playerChunkMap.getWorld();
++
++        for (int i = 0; i < this.dirtyCount; ++i) {
++            if (world.chunkPacketBlockController.hasPlayerSpecificBlockData(world, this.getDirtyBlockPosition(i))) {
++                return true;
++            }
++        }
++
++        return false;
++    }
++
++    private void sendBlockChange(BlockPosition blockPosition) {
++        WorldServer world = this.playerChunkMap.getWorld();
++
++        if (!world.chunkPacketBlockController.hasPlayerSpecificBlockData(world, blockPosition)) {
++            this.a((Packet) (new PacketPlayOutBlockChange(world, blockPosition)));
++            return;
++        }
++
++        if (this.done) {
++            for (int i = 0; i < this.c.size(); ++i) {
++                EntityPlayer player = (EntityPlayer) this.c.get(i);
++                IBlockData blockData = world.chunkPacketBlockController.getPlayerSpecificBlockData(player, world, blockPosition);
++                player.playerConnection.sendPacket(blockData == null ? new PacketPlayOutBlockChange(world, blockPosition) : new PacketPlayOutBlockChange(blockPosition, blockData));
++            }
++        }
++    }
++
+     private void a(@Nullable TileEntity tileentity) {
+         if (tileentity != null) {
+             PacketPlayOutTileEntityData packetplayouttileentitydata = tileentity.getUpdatePacket();
+ 
+-            if (packetplayouttileentitydata != null) {
+-                this.a((Packet) packetplayouttileentitydata);
++            if (packetplayouttileentitydata != null && this.done) {
++                World world = tileentity.getWorld();
++
++                for (int i = 0; i < this.c.size(); ++i) {
++                    EntityPlayer player = (EntityPlayer) this.c.get(i);
++
++                    if (world == null || world.chunkPacketBlockController.shouldSendTileEntityUpdate(player, tileentity)) {
++                        player.playerConnection.sendPacket(packetplayouttileentitydata);
++                    }
++                }
+             }
+         }
+ 
+diff --git a/src/main/java/net/minecraft/server/WorldManager.java b/src/main/java/net/minecraft/server/WorldManager.java
+index 2b00186c334977952b63e19a4568d8748af2a19d..b6434bc86130c0a3c0bbbdd67085a52370ff7642 100644
+--- a/src/main/java/net/minecraft/server/WorldManager.java
++++ b/src/main/java/net/minecraft/server/WorldManager.java
+@@ -51,9 +51,40 @@ public class WorldManager implements IWorldAccess {
+ 
+     public void a(EntityHuman entityhuman, int i, BlockPosition blockposition, int j) {
+         // CraftBukkit - this.world.dimension
++        if (this.world.chunkPacketBlockController.hasPlayerSpecificBlockData(this.world, blockposition)) {
++            this.sendLevelEvent(entityhuman, i, blockposition, j);
++            return;
++        }
++
+         this.a.getPlayerList().sendPacketNearby(entityhuman, (double) blockposition.getX(), (double) blockposition.getY(), (double) blockposition.getZ(), 64.0D, this.world, new PacketPlayOutWorldEvent(i, blockposition, j, false));
+     }
+ 
++    private void sendLevelEvent(EntityHuman entityhuman, int eventId, BlockPosition blockposition, int data) {
++        PacketPlayOutWorldEvent packet = new PacketPlayOutWorldEvent(eventId, blockposition, data, false);
++
++        for (int i = 0; i < this.world.players.size(); i++) {
++            EntityHuman entity = (EntityHuman) this.world.players.get(i);
++
++            if (!(entity instanceof EntityPlayer)) {
++                continue;
++            }
++
++            EntityPlayer player = (EntityPlayer) entity;
++
++            if (entityhuman instanceof EntityPlayer && !player.getBukkitEntity().canSee(((EntityPlayer) entityhuman).getBukkitEntity())) {
++                continue;
++            }
++
++            double x = (double) blockposition.getX() - player.locX;
++            double y = (double) blockposition.getY() - player.locY;
++            double z = (double) blockposition.getZ() - player.locZ;
++
++            if (player != entityhuman && x * x + y * y + z * z < 4096.0D && this.world.chunkPacketBlockController.shouldSendLevelEvent(player, this.world, eventId, blockposition)) {
++                player.playerConnection.sendPacket(packet);
++            }
++        }
++    }
++
+     public void a(int i, BlockPosition blockposition, int j) {
+         this.a.getPlayerList().sendAll(new PacketPlayOutWorldEvent(i, blockposition, j, true));
+     }
+diff --git a/src/main/java/net/minecraft/server/WorldServer.java b/src/main/java/net/minecraft/server/WorldServer.java
+index b7f10252681e39008ce83cc5d8b7d990bb4de68f..359814b145475b4c67a71c8c13924f70e9f3a1b6 100644
+--- a/src/main/java/net/minecraft/server/WorldServer.java
++++ b/src/main/java/net/minecraft/server/WorldServer.java
+@@ -1313,8 +1313,7 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+                 for (int i = 0; i < toIterate.size(); i++) {
+                     BlockActionData data = toIterate.get(i);
+                     if (this.a(data)) {
+-                        BlockPosition pos = data.a();
+-                        playerList.sendPacketNearby(null, pos.getX(), pos.getY(), pos.getZ(), 64.0D, this, new PacketPlayOutBlockAction(pos, data.d(), data.b(), data.c()));
++                        this.sendBlockAction(playerList, data);
+                     }
+                 }
+ 
+@@ -1331,6 +1330,34 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+ 
+     }
+ 
++    private void sendBlockAction(PlayerList playerList, BlockActionData data) {
++        BlockPosition pos = data.a();
++
++        if (!this.chunkPacketBlockController.hasPlayerSpecificBlockData(this, pos)) {
++            playerList.sendPacketNearby(null, pos.getX(), pos.getY(), pos.getZ(), 64.0D, this, new PacketPlayOutBlockAction(pos, data.d(), data.b(), data.c()));
++            return;
++        }
++
++        PacketPlayOutBlockAction packet = new PacketPlayOutBlockAction(pos, data.d(), data.b(), data.c());
++
++        for (int i = 0; i < this.players.size(); i++) {
++            EntityHuman entity = (EntityHuman) this.players.get(i);
++
++            if (!(entity instanceof EntityPlayer)) {
++                continue;
++            }
++
++            EntityPlayer player = (EntityPlayer) entity;
++            double x = (double) pos.getX() - player.locX;
++            double y = (double) pos.getY() - player.locY;
++            double z = (double) pos.getZ() - player.locZ;
++
++            if (x * x + y * y + z * z < 4096.0D && this.chunkPacketBlockController.shouldSendBlockAction(player, this, pos)) {
++                player.playerConnection.sendPacket(packet);
++            }
++        }
++    }
++
+     private boolean a(BlockActionData blockactiondata) {
+         IBlockData iblockdata = this.getType(blockactiondata.a());
+ 
