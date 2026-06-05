@@ -5,10 +5,10 @@ Subject: [PATCH] Add ray traced exposed anti-xray blocks
 
 
 diff --git a/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java b/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
-index 6c88e52757d4d05580d5476e9d8b3b7a97242f9f..5ccd85511fd089358a863e36ca78d3c4de6dd380 100644
+index 6c88e52757d4d05580d5476e9d8b3b7a97242f9f..1c89c85f395764da3ecf4d8100b019983cd59dbd 100644
 --- a/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
 +++ b/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
-@@ -449,8 +449,13 @@ public class PaperWorldConfig {
+@@ -449,8 +449,14 @@ public class PaperWorldConfig {
      public ChunkEdgeMode chunkEdgeMode;
      public int maxChunkSectionIndex;
      public int updateRadius;
@@ -17,12 +17,13 @@ index 6c88e52757d4d05580d5476e9d8b3b7a97242f9f..5ccd85511fd089358a863e36ca78d3c4
 +    public int rayTraceInterval;
 +    public int rayTraceMaxBlockCountPerChunk;
      public List<Object> hiddenBlocks;
++    public List<Object> hiddenTileEntities;
      public List<Object> replacementBlocks;
 +    public List<Object> rayTraceReplacementBlocks;
      private void antiXray() {
          antiXray = getBoolean("anti-xray.enabled", false);
          asynchronous = true;
-@@ -461,9 +466,14 @@ public class PaperWorldConfig {
+@@ -461,9 +467,15 @@ public class PaperWorldConfig {
          maxChunkSectionIndex = getInt("anti-xray.max-chunk-section-index", 3);
          maxChunkSectionIndex = maxChunkSectionIndex > 15 ? 15 : maxChunkSectionIndex;
          updateRadius = getInt("anti-xray.update-radius", 2);
@@ -32,6 +33,7 @@ index 6c88e52757d4d05580d5476e9d8b3b7a97242f9f..5ccd85511fd089358a863e36ca78d3c4
 +        rayTraceInterval = Math.max(getInt("anti-xray.ray-trace-interval", 5), 1);
 +        rayTraceMaxBlockCountPerChunk = Math.max(getInt("anti-xray.ray-trace-max-block-count-per-chunk", 100), 0);
 +        hiddenBlocks = getList("anti-xray.hidden-blocks", Arrays.asList((Object) "gold_ore", "iron_ore", "coal_ore", "lapis_ore", "mossy_cobblestone", "obsidian", "chest", "trapped_chest", "mob_spawner", "diamond_ore", "redstone_ore", "lit_redstone_ore", "clay", "emerald_ore", "ender_chest"));
++        hiddenTileEntities = getList("anti-xray.hidden-tile-entities", Arrays.asList((Object) "chest", "trapped_chest", "mob_spawner", "ender_chest"));
          replacementBlocks = getList("anti-xray.replacement-blocks", Arrays.asList((Object) "stone", "planks"));
 -        log("Anti-Xray: " + (antiXray ? "enabled" : "disabled") + " / Engine Mode: " + engineMode.getDescription() + " / Chunk Edge Mode: " + chunkEdgeMode.getDescription() + " / Up to " + ((maxChunkSectionIndex + 1) * 16) + " blocks / Update Radius: " + updateRadius);
 +        rayTraceReplacementBlocks = getList("anti-xray.ray-trace-replacement-blocks", replacementBlocks);
@@ -90,7 +92,7 @@ index 8d1998a085bc7b7b1f4167b506103ea7ce9f557c..6b2208a6b5f4e6670c6bde95b4ee52a3
          packetPlayOutMapChunk.setReady(true);
      }
 diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
-index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531b5555135 100644
+index 558188fa1dc7a7f18988d040aaee26de035ad01e..9ad6c638aea56f40e14f630397fd43bbe33e6633 100644
 --- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
 +++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
 @@ -1,9 +1,15 @@
@@ -190,7 +192,14 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
  
          if (asynchronous) {
              executorService = getExecutorServiceInstance();
-@@ -66,36 +108,40 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -61,41 +103,47 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         List<Object> toObfuscate;
+ 
+         if (engineMode == EngineMode.HIDE) {
+-            toObfuscate = paperWorldConfig.hiddenBlocks;
++            toObfuscate = new ArrayList<Object>(paperWorldConfig.hiddenBlocks);
++            addConfiguredTileEntities(toObfuscate, paperWorldConfig.hiddenTileEntities);
+             predefinedBlockData = null;
              predefinedBlockDataStone = new IBlockData[] {Blocks.STONE.getBlockData()};
              predefinedBlockDataNetherrack = new IBlockData[] {Blocks.NETHERRACK.getBlockData()};
              predefinedBlockDataEndStone = new IBlockData[] {Blocks.END_STONE.getBlockData()};
@@ -211,7 +220,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
                  Block block = Block.getByName(String.valueOf(id));
  
 -                if (block != null && !block.isTileEntity()) {
-+                if (block != null && (!block.isTileEntity() || isSupportedRayTraceTileEntityBlock(block))) {
++                if (block != null) {
                      toObfuscate.add(id);
 -                    predefinedBlockDataSet.add(block.getBlockData());
 +                }
@@ -222,6 +231,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
              }
  
 -            predefinedBlockData = predefinedBlockDataSet.size() == 0 ? new IBlockData[] {Blocks.DIAMOND_ORE.getBlockData()} : predefinedBlockDataSet.toArray(new IBlockData[predefinedBlockDataSet.size()]);
++            addConfiguredTileEntities(toObfuscate, paperWorldConfig.hiddenTileEntities);
 +            IBlockData[] normalObfuscationBlockData = obfuscationBlockData.size() == 0 ? new IBlockData[] {Blocks.DIAMOND_ORE.getBlockData()} : obfuscationBlockData.toArray(new IBlockData[obfuscationBlockData.size()]);
 +            rayTraceReplacementBlockData = getConfiguredBlockData(paperWorldConfig.rayTraceReplacementBlocks, Blocks.STONE.getBlockData());
 +            predefinedBlockData = mergeBlockData(normalObfuscationBlockData, rayTraceReplacementBlockData);
@@ -243,34 +253,55 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
  
              predefinedBlockDataBitsStoneGlobal = null;
              predefinedBlockDataBitsNetherrackGlobal = null;
-@@ -106,7 +152,15 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -106,10 +154,20 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
              Block block = Block.getByName(String.valueOf(id));
  
              if (block != null) {
 -                obfuscateGlobal[Block.REGISTRY_ID.getId(block.getBlockData())] = true;
 +                setBlockDataBits(obfuscateGlobal, block);
-+            }
-+        }
-+
-+        for (Object id : paperWorldConfig.hiddenBlocks) {
-+            Block block = Block.getByName(String.valueOf(id));
-+
-+            if (block != null && (!block.isTileEntity() || isSupportedRayTraceTileEntityBlock(block))) {
-+                setBlockDataBits(rayTraceGlobal, block);
              }
          }
  
-@@ -127,6 +181,82 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
++        for (Object id : paperWorldConfig.hiddenBlocks) {
++            Block block = Block.getByName(String.valueOf(id));
++
++            if (block != null) {
++                setBlockDataBits(rayTraceGlobal, block);
++            }
++        }
++
++        setConfiguredTileEntityBlockDataBits(rayTraceGlobal, paperWorldConfig.hiddenTileEntities);
++
+         for (int i = 0; i < solidGlobal.length; i++) {
+             IBlockData blockData = Block.REGISTRY_ID.fromId(i);
+ 
+@@ -127,6 +185,98 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
          return executorServiceInstance;
      }
  
-+    private static boolean isSupportedRayTraceTileEntityBlock(Block block) {
-+        return block == Blocks.MOB_SPAWNER || block == Blocks.CHEST || block == Blocks.TRAPPED_CHEST || block == Blocks.ENDER_CHEST;
-+    }
-+
 +    private static void setBlockDataBits(boolean[] blockDataBits, Block block) {
 +        for (IBlockData blockData : block.s().a()) {
 +            blockDataBits[Block.REGISTRY_ID.getId(blockData)] = true;
++        }
++    }
++
++    private static void addConfiguredTileEntities(List<Object> blocks, List<Object> tileEntityBlocks) {
++        for (Object id : tileEntityBlocks) {
++            Block block = Block.getByName(String.valueOf(id));
++
++            if (block != null && block.isTileEntity()) {
++                blocks.add(id);
++            }
++        }
++    }
++
++    private static void setConfiguredTileEntityBlockDataBits(boolean[] blockDataBits, List<Object> tileEntityBlocks) {
++        for (Object id : tileEntityBlocks) {
++            Block block = Block.getByName(String.valueOf(id));
++
++            if (block != null && block.isTileEntity()) {
++                setBlockDataBits(blockDataBits, block);
++            }
 +        }
 +    }
 +
@@ -343,7 +374,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
      @Override
      public IBlockData[] getPredefinedBlockData(Chunk chunk, int chunkSectionIndex) {
          //Return the block data which should be added to the data palettes so that they can be used for the obfuscation
-@@ -176,6 +306,39 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -176,6 +326,39 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
          return packetPlayOutMapChunkInfoAntiXray;
      }
  
@@ -377,13 +408,13 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
 +        }
 +
 +        IBlockData blockData = packetPlayOutMapChunkInfoAntiXray.getChunk().world.getTypeIfLoaded(blockPosition);
-+        return blockData != null && isSupportedRayTraceTileEntityBlock(blockData.getBlock());
++        return isHiddenRayTraceTileEntity(blockData);
 +    }
 +
      @Override
      public void modifyBlocks(PacketPlayOutMapChunk packetPlayOutMapChunk, PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo) {
          if (asynchronous) {
-@@ -205,7 +368,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -205,7 +388,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
  
          for (int chunkSectionIndex = 0; chunkSectionIndex <= maxChunkSectionIndex; chunkSectionIndex++) {
              if (packetPlayOutMapChunkInfoAntiXray.isWritten(chunkSectionIndex) && packetPlayOutMapChunkInfoAntiXray.getPredefinedBlockData(chunkSectionIndex) != null) {
@@ -392,7 +423,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
                  dataBitsWriter.setIndex(packetPlayOutMapChunkInfoAntiXray.getDataBitsIndex(chunkSectionIndex));
  
                  //Check if the chunk section below was not obfuscated
-@@ -287,9 +450,495 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -287,9 +470,499 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
              }
          }
  
@@ -814,7 +845,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
 +    private PacketPlayOutTileEntityData getTileEntityUpdatePacket(World world, BlockPosition blockPosition) {
 +        IBlockData blockData = world.getTypeIfLoaded(blockPosition);
 +
-+        if (blockData == null || !isSupportedRayTraceTileEntityBlock(blockData.getBlock())) {
++        if (!isHiddenRayTraceTileEntity(blockData)) {
 +            return null;
 +        }
 +
@@ -826,6 +857,10 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
 +
 +        TileEntity tileEntity = chunk.getTileEntityImmediately(blockPosition);
 +        return tileEntity == null ? null : tileEntity.getUpdatePacket();
++    }
++
++    private boolean isHiddenRayTraceTileEntity(IBlockData blockData) {
++        return blockData != null && blockData.getBlock().isTileEntity() && rayTraceGlobal[Block.REGISTRY_ID.getId(blockData)];
 +    }
 +
 +    private boolean isWithinRayTraceDistance(EntityPlayer player, BlockPosition blockPosition) {
@@ -888,7 +923,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..518c8a444d0d26a1931d53baa22a9531
      private int obfuscateLayer(int y, DataBitsReader dataBitsReader, DataBitsWriter dataBitsWriter, boolean[] solid, boolean[] obfuscate, int[] predefinedBlockDataBits, boolean[][] current, boolean[][] next, boolean[][] nextNext, ChunkSection[] nearbyChunkSections, int counter) {
          //First block of first line
          int dataBits = dataBitsReader.read();
-@@ -580,6 +1229,25 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -580,6 +1253,25 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
          }
      }
  
