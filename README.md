@@ -1,14 +1,19 @@
-<img src="logo.jpg" height="240" alt="Beast Face" align="right">
+<table align="center">
+  <tr>
+    <td align="center"><a href="https://github.com/HomoMC"><img src="logo.jpg" width="180" height="180" alt="HomoMC" style="border-radius:50%; object-fit:cover;"></a><br><b>HomoMC</b></td>
+    <td align="center"><a href="https://github.com/SMETeam"><img src="https://sme-mc.us/img/logo.png" width="180" height="180" alt="Snubby / SMETeam" style="border-radius:50%; object-fit:cover;"></a><br><b>Snubby / SMETeam</b></td>
+  </tr>
+</table>
 
-# Beast [![Dev Build](https://github.com/HomoMC/Beast/actions/workflows/dev-build.yml/badge.svg)](https://github.com/HomoMC/Beast/actions/workflows/dev-build.yml)
+# SME Beast [![Dev Build](https://github.com/SMETeam/SME-Beast/actions/workflows/dev-build.yml/badge.svg)](https://github.com/SMETeam/SME-Beast/actions/workflows/dev-build.yml)
 
-A Paper 1.12.2 fork aims to provide extreme performance, bug fixes, and improvements.
+A Paper 1.12.2 fork of a OTHER Paper fork aims to provide extreme performance, bug fixes, improvements, and better anti-xray.
 
-*This project is based on Reaper 1.12.2*
+*This project is based on Beast 1.12.2*
 
 ## Features
 
-- **Beast is a fork of [Paper-1.12.2](https://github.com/PaperMC/Paper)** designed for performance, new fun and exciting gameplay features.
+- **SME Beast is a fork of [Paper-1.12.2](https://github.com/PaperMC/Paper)** designed for performance, new fun and exciting gameplay features.
 - **Contains [Lithium](https://github.com/CaffeineMC/lithium-fabric) patches** that optimizing many areas in game.
 - **Bug fixes** for several Minecraft issues.
 - **Backports** bug fixes of Mojang.
@@ -18,8 +23,17 @@ A Paper 1.12.2 fork aims to provide extreme performance, bug fixes, and improvem
 - **Brings back** some vanilla features.
 - **More events make your server more fun**.
 - **Support Virtual Threads which is introduced in Java 21**
-- Pause server when no players online(configurable)
+- Pause server when no players online (configurable)
 - Configurable 1.8 old combat method
+- **Dynamic View Distance (with permissions)**
+- **Raytracing Anti-Xray**
+- Ported New item names
+
+### Permissions
+```
+reaper.dynvd_<distance>
+reaper.unlimitvd
+```
 
 ### Java >= 8 is required, Java >= 21 is recommended.
 
@@ -27,7 +41,7 @@ A Paper 1.12.2 fork aims to provide extreme performance, bug fixes, and improvem
 
 Beast uses the same paperclip jar system that Paper uses.
 
-You can download the latest release of Beast by going [here](https://github.com/HomoMC/Beast/releases/latest) but I highly recommend to use the latest [dev build](https://nightly.link/HomoMC/Beast/workflows/dev-build/ver%2F1.12.2/Beast-JDK8.zip).
+You can download the latest release of Beast by going [here](https://github.com/SMETeam/SME-Beast/Releases) but I highly recommend to use the latest [dev build](https://nightly.link/SMETeam/SME-Beast/workflows/dev-build/ver%2F1.12.2/Beast-JDK8.zip).
 
 ## How To (Plugin Developers)
 
@@ -62,7 +76,8 @@ Beast-Server maven dependency:
 
 ### Great thanks to these projects:
 
-- **Reaper (which is the base of Beast)**
+- Beast
+- Reaper
 - Leaf
 - Polpot
 - Randar Explanation
