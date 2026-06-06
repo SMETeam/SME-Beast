@@ -20,6 +20,11 @@ index de3d7464907f0085123d201c41a24df68bd24ead..a57c817d09eccfbae13affde516a2c20
          return modZ;
      }
  
++    /**
++     * Get this block face as a direction vector.
++     *
++     * @return direction vector
++     */
 +    public Vector getDirection() {
 +        return new Vector(modX, modY, modZ);
 +    }
