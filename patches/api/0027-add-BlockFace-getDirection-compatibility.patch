@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Sat, 6 Jun 2026 16:45:00 -0400
+Subject: [PATCH] Add BlockFace getDirection compatibility
+
+
+diff --git a/src/main/java/org/bukkit/block/BlockFace.java b/src/main/java/org/bukkit/block/BlockFace.java
+index de3d7464907f0085123d201c41a24df68bd24ead..a57c817d09eccfbae13affde516a2c20e6280c4b 100644
+--- a/src/main/java/org/bukkit/block/BlockFace.java
++++ b/src/main/java/org/bukkit/block/BlockFace.java
+@@ -1,5 +1,7 @@
+ package org.bukkit.block;
+ 
++import org.bukkit.util.Vector;
++
+ /**
+  * Represents the face of a block
+  */
+@@ -68,6 +70,15 @@ public enum BlockFace {
+         return modZ;
+     }
+ 
++    public Vector getDirection() {
++        return new Vector(modX, modY, modZ);
++    }
++
+     public BlockFace getOppositeFace() {
+         switch (this) {
+         case NORTH:
