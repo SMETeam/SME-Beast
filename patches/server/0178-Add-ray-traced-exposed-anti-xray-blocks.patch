@@ -441,7 +441,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
                  dataBitsWriter.setIndex(packetPlayOutMapChunkInfoAntiXray.getDataBitsIndex(chunkSectionIndex));
  
                  //Check if the chunk section below was not obfuscated
-@@ -287,9 +486,771 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -287,9 +486,847 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
              }
          }
  
@@ -837,7 +837,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
 +        double eyeY = player.locY + (double) player.getHeadHeight();
 +        double eyeZ = player.locZ;
 +        List<BlockPosition> rayTraceBlocks = new ArrayList<>();
-+        Map<Long, Chunk> loadedChunks = new HashMap<>();
++        Set<Long> solidChunkKeys = new HashSet<>();
 +        Map<Long, long[]> solidChunks = new HashMap<>();
 +        int playerChunkX = (int) Math.floor(player.locX) >> 4;
 +        int playerChunkZ = (int) Math.floor(player.locZ) >> 4;
@@ -858,7 +858,6 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
 +                    continue;
 +                }
 +
-+                loadedChunks.put(chunkKey, loadedChunk);
 +                RayTraceChunk rayTraceChunk = rayTraceChunks.get(chunkKey);
 +
 +                if (rayTraceChunk == null) {
@@ -868,18 +867,95 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
 +                for (BlockPosition rayTraceBlock : rayTraceChunk.getBlocks()) {
 +                    if (isWithinRayTraceDistance(eyeX, eyeY, eyeZ, rayTraceBlock)) {
 +                        rayTraceBlocks.add(rayTraceBlock);
++                        addSolidChunkKeysForRay(eyeX, eyeY, eyeZ, rayTraceBlock, solidChunkKeys);
 +                    }
 +                }
 +            }
 +        }
 +
-+        if (!rayTraceBlocks.isEmpty()) {
-+            for (Map.Entry<Long, Chunk> entry : loadedChunks.entrySet()) {
-+                solidChunks.put(entry.getKey(), createSolidBlockData(entry.getValue()));
++        if (!solidChunkKeys.isEmpty()) {
++            for (Long solidChunkKey : solidChunkKeys) {
++                long key = solidChunkKey.longValue();
++                Chunk loadedChunk = world.getChunkIfLoaded((int) key, (int) (key >> 32));
++
++                if (loadedChunk != null && loadedChunk.isLoaded()) {
++                    solidChunks.put(solidChunkKey, createSolidBlockData(loadedChunk));
++                }
 +            }
 +        }
 +
 +        return new RayTracePlayerSnapshot(player, world, server, eyeX, eyeY, eyeZ, rayTraceBlocks, solidChunks);
++    }
++
++    private void addSolidChunkKeysForRay(double eyeX, double eyeY, double eyeZ, BlockPosition blockPosition, Set<Long> solidChunkKeys) {
++        for (double[] offset : RAY_TRACE_TARGET_OFFSETS) {
++            addSolidChunkKeysForRay(eyeX, eyeY, eyeZ, (double) blockPosition.getX() + offset[0], (double) blockPosition.getY() + offset[1], (double) blockPosition.getZ() + offset[2], blockPosition, solidChunkKeys);
++        }
++    }
++
++    private void addSolidChunkKeysForRay(double startX, double startY, double startZ, double endXDouble, double endYDouble, double endZDouble, BlockPosition targetBlock, Set<Long> solidChunkKeys) {
++        if (Double.isNaN(startX) || Double.isNaN(startY) || Double.isNaN(startZ) || Double.isNaN(endXDouble) || Double.isNaN(endYDouble) || Double.isNaN(endZDouble)) {
++            return;
++        }
++
++        int targetX = targetBlock.getX();
++        int targetY = targetBlock.getY();
++        int targetZ = targetBlock.getZ();
++        int x = MathHelper.floor(startX);
++        int y = MathHelper.floor(startY);
++        int z = MathHelper.floor(startZ);
++        int endX = MathHelper.floor(endXDouble);
++        int endY = MathHelper.floor(endYDouble);
++        int endZ = MathHelper.floor(endZDouble);
++        Vec3D start = new Vec3D(startX, startY, startZ);
++        Vec3D end = new Vec3D(endXDouble, endYDouble, endZDouble);
++
++        for (int steps = 0; steps < 200; steps++) {
++            solidChunkKeys.add(Long.valueOf(ChunkCoordIntPair.asLong(x >> 4, z >> 4)));
++
++            if ((x == targetX && y == targetY && z == targetZ) || (x == endX && y == endY && z == endZ)) {
++                return;
++            }
++
++            double nextX = endX > x ? (double) x + 1.0D : endX < x ? (double) x : 999.0D;
++            double nextY = endY > y ? (double) y + 1.0D : endY < y ? (double) y : 999.0D;
++            double nextZ = endZ > z ? (double) z + 1.0D : endZ < z ? (double) z : 999.0D;
++            double deltaX = end.x - start.x;
++            double deltaY = end.y - start.y;
++            double deltaZ = end.z - start.z;
++            double stepX = nextX == 999.0D ? 999.0D : (nextX - start.x) / deltaX;
++            double stepY = nextY == 999.0D ? 999.0D : (nextY - start.y) / deltaY;
++            double stepZ = nextZ == 999.0D ? 999.0D : (nextZ - start.z) / deltaZ;
++
++            if (stepX == -0.0D) {
++                stepX = -1.0E-4D;
++            }
++
++            if (stepY == -0.0D) {
++                stepY = -1.0E-4D;
++            }
++
++            if (stepZ == -0.0D) {
++                stepZ = -1.0E-4D;
++            }
++
++            int axis;
++
++            if (stepX < stepY && stepX < stepZ) {
++                axis = 0;
++                start = new Vec3D(nextX, start.y + deltaY * stepX, start.z + deltaZ * stepX);
++            } else if (stepY < stepZ) {
++                axis = 1;
++                start = new Vec3D(start.x + deltaX * stepY, nextY, start.z + deltaZ * stepY);
++            } else {
++                axis = 2;
++                start = new Vec3D(start.x + deltaX * stepZ, start.y + deltaY * stepZ, nextZ);
++            }
++
++            x = MathHelper.floor(start.x) - (axis == 0 && endX < x ? 1 : 0);
++            y = MathHelper.floor(start.y) - (axis == 1 && endY < y ? 1 : 0);
++            z = MathHelper.floor(start.z) - (axis == 2 && endZ < z ? 1 : 0);
++        }
 +    }
 +
 +    private Set<BlockPosition> findVisibleRayTraceBlocks(RayTracePlayerSnapshot snapshot) {
