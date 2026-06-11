@@ -95,10 +95,9 @@ diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockCont
 index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75a5133faa 100644
 --- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
 +++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
-@@ -1,9 +1,15 @@
+@@ -1,9 +1,14 @@
  package com.destroystokyo.paper.antixray;
  
-+import java.lang.ref.WeakReference;
  import java.util.ArrayList;
 +import java.util.Collections;
 +import java.util.HashMap;
@@ -442,7 +441,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
                  dataBitsWriter.setIndex(packetPlayOutMapChunkInfoAntiXray.getDataBitsIndex(chunkSectionIndex));
  
                  //Check if the chunk section below was not obfuscated
-@@ -287,9 +486,786 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -287,9 +486,771 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
              }
          }
  
@@ -620,10 +619,13 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
 +
 +    private void updateRayTraceBlocks(Chunk chunk, int chunkSectionSelector, List<BlockPosition> rayTraceBlocks) {
 +        long key = ChunkCoordIntPair.asLong(chunk.locX, chunk.locZ);
-+        long[] solidBlocks = createSolidBlockData(chunk);
 +
 +        if (chunkSectionSelector == 0xffff || !rayTraceChunks.containsKey(key)) {
-+            rayTraceChunks.put(key, new RayTraceChunk(chunk, rayTraceBlocks, solidBlocks));
++            if (rayTraceBlocks.isEmpty()) {
++                rayTraceChunks.remove(key);
++            } else {
++                rayTraceChunks.put(key, new RayTraceChunk(rayTraceBlocks));
++            }
 +            return;
 +        }
 +
@@ -643,9 +645,9 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
 +        mergedRayTraceBlocks.addAll(rayTraceBlocks);
 +
 +        if (mergedRayTraceBlocks.isEmpty()) {
-+            rayTraceChunks.put(key, new RayTraceChunk(chunk, mergedRayTraceBlocks, solidBlocks));
++            rayTraceChunks.remove(key);
 +        } else {
-+            rayTraceChunks.put(key, new RayTraceChunk(chunk, mergedRayTraceBlocks, solidBlocks));
++            rayTraceChunks.put(key, new RayTraceChunk(mergedRayTraceBlocks));
 +        }
 +    }
 +
@@ -835,6 +837,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
 +        double eyeY = player.locY + (double) player.getHeadHeight();
 +        double eyeZ = player.locZ;
 +        List<BlockPosition> rayTraceBlocks = new ArrayList<>();
++        Map<Long, Chunk> loadedChunks = new HashMap<>();
 +        Map<Long, long[]> solidChunks = new HashMap<>();
 +        int playerChunkX = (int) Math.floor(player.locX) >> 4;
 +        int playerChunkZ = (int) Math.floor(player.locZ) >> 4;
@@ -849,13 +852,18 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
 +                }
 +
 +                long chunkKey = ChunkCoordIntPair.asLong(chunkX, chunkZ);
-+                RayTraceChunk rayTraceChunk = getOrCreateRayTraceChunk(world, chunkKey, chunkX, chunkZ);
++                Chunk loadedChunk = world.getChunkIfLoaded(chunkX, chunkZ);
++
++                if (loadedChunk == null || !loadedChunk.isLoaded()) {
++                    continue;
++                }
++
++                loadedChunks.put(chunkKey, loadedChunk);
++                RayTraceChunk rayTraceChunk = rayTraceChunks.get(chunkKey);
 +
 +                if (rayTraceChunk == null) {
 +                    continue;
 +                }
-+
-+                solidChunks.put(chunkKey, rayTraceChunk.getSolidBlocks());
 +
 +                for (BlockPosition rayTraceBlock : rayTraceChunk.getBlocks()) {
 +                    if (isWithinRayTraceDistance(eyeX, eyeY, eyeZ, rayTraceBlock)) {
@@ -865,37 +873,13 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
 +            }
 +        }
 +
-+        return new RayTracePlayerSnapshot(player, world, server, eyeX, eyeY, eyeZ, rayTraceBlocks, solidChunks);
-+    }
-+
-+    private RayTraceChunk getOrCreateRayTraceChunk(WorldServer world, long chunkKey, int chunkX, int chunkZ) {
-+        RayTraceChunk rayTraceChunk = rayTraceChunks.get(chunkKey);
-+        Chunk chunk = rayTraceChunk == null ? null : rayTraceChunk.getChunk();
-+
-+        if (chunk == null || !chunk.isLoaded()) {
-+            Chunk loadedChunk = world.getChunkIfLoaded(chunkX, chunkZ);
-+
-+            if (loadedChunk == null || !loadedChunk.isLoaded()) {
-+                if (rayTraceChunk != null) {
-+                    rayTraceChunks.remove(chunkKey, rayTraceChunk);
-+                }
-+
-+                return null;
-+            }
-+
-+            List<BlockPosition> blocks = rayTraceChunk == null ? Collections.<BlockPosition>emptyList() : rayTraceChunk.getBlocks();
-+            RayTraceChunk newRayTraceChunk = new RayTraceChunk(loadedChunk, blocks, createSolidBlockData(loadedChunk));
-+
-+            if (rayTraceChunk == null) {
-+                RayTraceChunk previousRayTraceChunk = rayTraceChunks.putIfAbsent(chunkKey, newRayTraceChunk);
-+                rayTraceChunk = previousRayTraceChunk == null ? newRayTraceChunk : previousRayTraceChunk;
-+            } else {
-+                rayTraceChunks.put(chunkKey, newRayTraceChunk);
-+                rayTraceChunk = newRayTraceChunk;
++        if (!rayTraceBlocks.isEmpty()) {
++            for (Map.Entry<Long, Chunk> entry : loadedChunks.entrySet()) {
++                solidChunks.put(entry.getKey(), createSolidBlockData(entry.getValue()));
 +            }
 +        }
 +
-+        return rayTraceChunk;
++        return new RayTracePlayerSnapshot(player, world, server, eyeX, eyeY, eyeZ, rayTraceBlocks, solidChunks);
 +    }
 +
 +    private Set<BlockPosition> findVisibleRayTraceBlocks(RayTracePlayerSnapshot snapshot) {
@@ -1229,76 +1213,20 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..715bf342cbd83f9a778bdde796b67c75
      private int obfuscateLayer(int y, DataBitsReader dataBitsReader, DataBitsWriter dataBitsWriter, boolean[] solid, boolean[] obfuscate, int[] predefinedBlockDataBits, boolean[][] current, boolean[][] next, boolean[][] nextNext, ChunkSection[] nearbyChunkSections, int counter) {
          //First block of first line
          int dataBits = dataBitsReader.read();
-@@ -532,6 +1508,8 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
- 
-     @Override
-     public void updateNearbyBlocks(World world, BlockPosition blockPosition) {
-+        updateSolidBlockData(world, blockPosition);
-+
-         if (updateRadius >= 2) {
-             BlockPosition temp = blockPosition.west();
-             updateBlock(world, temp);
-@@ -570,6 +1548,26 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
-         }
-     }
- 
-+    private void updateSolidBlockData(World world, BlockPosition blockPosition) {
-+        if (!rayTraceExposedBlocks || blockPosition.getY() < 0 || blockPosition.getY() >= 256) {
-+            return;
-+        }
-+
-+        RayTraceChunk rayTraceChunk = rayTraceChunks.get(ChunkCoordIntPair.asLong(blockPosition.getX() >> 4, blockPosition.getZ() >> 4));
-+
-+        if (rayTraceChunk == null) {
-+            return;
-+        }
-+
-+        IBlockData blockData = world.getTypeIfLoaded(blockPosition);
-+
-+        if (blockData == null) {
-+            return;
-+        }
-+
-+        rayTraceChunk.setSolidBlock(getSolidBlockIndex(blockPosition.getX(), blockPosition.getY(), blockPosition.getZ()), solidGlobal[Block.REGISTRY_ID.getId(blockData)]);
-+    }
-+
-     private void updateBlock(World world, BlockPosition blockPosition) {
-         if (world.isLoaded(blockPosition)) {
-             IBlockData blockData = world.getType(blockPosition);
-@@ -580,6 +1578,94 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -580,6 +1578,74 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
          }
      }
  
 +    private static final class RayTraceChunk {
 +
-+        private final WeakReference<Chunk> chunk;
 +        private final List<BlockPosition> blocks;
-+        private volatile long[] solidBlocks;
 +
-+        private RayTraceChunk(Chunk chunk, List<BlockPosition> blocks, long[] solidBlocks) {
-+            this.chunk = new WeakReference<>(chunk);
++        private RayTraceChunk(List<BlockPosition> blocks) {
 +            this.blocks = blocks;
-+            this.solidBlocks = solidBlocks;
-+        }
-+
-+        private Chunk getChunk() {
-+            return chunk.get();
 +        }
 +
 +        private List<BlockPosition> getBlocks() {
 +            return blocks;
-+        }
-+
-+        private long[] getSolidBlocks() {
-+            return solidBlocks;
-+        }
-+
-+        private void setSolidBlock(int index, boolean solid) {
-+            synchronized (this) {
-+                long[] solidBlocksCopy = solidBlocks.clone();
-+                setSolidBlockData(solidBlocksCopy, index, solid);
-+                solidBlocks = solidBlocksCopy;
-+            }
 +        }
 +    }
 +
