@@ -1240,7 +1240,7 @@ index b7f10252681e39008ce83cc5d8b7d990bb4de68f..359814b145475b4c67a71c8c13924f70
                      }
                  }
  
-@@ -1331,6 +1330,34 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+@@ -1331,5 +1330,33 @@ public class WorldServer extends World implements IAsyncTaskHandler {
  
      }
  
@@ -1274,4 +1274,3 @@ index b7f10252681e39008ce83cc5d8b7d990bb4de68f..359814b145475b4c67a71c8c13924f70
 +
      private boolean a(BlockActionData blockactiondata) {
          IBlockData iblockdata = this.getType(blockactiondata.a());
- 
