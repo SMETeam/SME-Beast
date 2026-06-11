@@ -122,7 +122,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..9ad6c638aea56f40e14f630397fd43bb
  import net.minecraft.server.DataPaletteGlobal;
 +import net.minecraft.server.EntityPlayer;
  import net.minecraft.server.IBlockData;
-+import net.minecraft.server.MovingObjectPosition;
++import net.minecraft.server.MathHelper;
 +import net.minecraft.server.Packet;
 +import net.minecraft.server.PacketPlayOutBlockChange;
  import net.minecraft.server.PacketPlayOutMapChunk;
@@ -423,7 +423,7 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..9ad6c638aea56f40e14f630397fd43bb
                  dataBitsWriter.setIndex(packetPlayOutMapChunkInfoAntiXray.getDataBitsIndex(chunkSectionIndex));
  
                  //Check if the chunk section below was not obfuscated
-@@ -287,9 +470,499 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -287,9 +470,580 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
              }
          }
  
@@ -886,14 +886,95 @@ index 558188fa1dc7a7f18988d040aaee26de035ad01e..9ad6c638aea56f40e14f630397fd43bb
 +
 +        for (double[] offset : RAY_TRACE_TARGET_OFFSETS) {
 +            Vec3D target = new Vec3D((double) blockPosition.getX() + offset[0], (double) blockPosition.getY() + offset[1], (double) blockPosition.getZ() + offset[2]);
-+            MovingObjectPosition movingObjectPosition = player.world.rayTrace(eye, target, false, true, false);
 +
-+            if (movingObjectPosition == null || movingObjectPosition.type == MovingObjectPosition.EnumMovingObjectType.MISS || blockPosition.equals(movingObjectPosition.a())) {
++            if (canSeeThrough(player.world, eye, target, blockPosition)) {
 +                return true;
 +            }
 +        }
 +
 +        return false;
++    }
++
++    private boolean canSeeThrough(World world, Vec3D start, Vec3D end, BlockPosition targetBlock) {
++        if (Double.isNaN(start.x) || Double.isNaN(start.y) || Double.isNaN(start.z) || Double.isNaN(end.x) || Double.isNaN(end.y) || Double.isNaN(end.z)) {
++            return false;
++        }
++
++        int targetX = targetBlock.getX();
++        int targetY = targetBlock.getY();
++        int targetZ = targetBlock.getZ();
++        int x = MathHelper.floor(start.x);
++        int y = MathHelper.floor(start.y);
++        int z = MathHelper.floor(start.z);
++        int endX = MathHelper.floor(end.x);
++        int endY = MathHelper.floor(end.y);
++        int endZ = MathHelper.floor(end.z);
++        BlockPosition.MutableBlockPosition currentBlock = new BlockPosition.MutableBlockPosition(x, y, z);
++
++        for (int steps = 0; steps < 200; steps++) {
++            if (x == targetX && y == targetY && z == targetZ) {
++                return true;
++            }
++
++            if (isRayTraceBlocked(world, currentBlock)) {
++                return false;
++            }
++
++            if (x == endX && y == endY && z == endZ) {
++                return false;
++            }
++
++            double nextX = endX > x ? (double) x + 1.0D : endX < x ? (double) x : 999.0D;
++            double nextY = endY > y ? (double) y + 1.0D : endY < y ? (double) y : 999.0D;
++            double nextZ = endZ > z ? (double) z + 1.0D : endZ < z ? (double) z : 999.0D;
++            double deltaX = end.x - start.x;
++            double deltaY = end.y - start.y;
++            double deltaZ = end.z - start.z;
++            double stepX = nextX == 999.0D ? 999.0D : (nextX - start.x) / deltaX;
++            double stepY = nextY == 999.0D ? 999.0D : (nextY - start.y) / deltaY;
++            double stepZ = nextZ == 999.0D ? 999.0D : (nextZ - start.z) / deltaZ;
++
++            if (stepX == -0.0D) {
++                stepX = -1.0E-4D;
++            }
++
++            if (stepY == -0.0D) {
++                stepY = -1.0E-4D;
++            }
++
++            if (stepZ == -0.0D) {
++                stepZ = -1.0E-4D;
++            }
++
++            int axis;
++
++            if (stepX < stepY && stepX < stepZ) {
++                axis = 0;
++                start = new Vec3D(nextX, start.y + deltaY * stepX, start.z + deltaZ * stepX);
++            } else if (stepY < stepZ) {
++                axis = 1;
++                start = new Vec3D(start.x + deltaX * stepY, nextY, start.z + deltaZ * stepY);
++            } else {
++                axis = 2;
++                start = new Vec3D(start.x + deltaX * stepZ, start.y + deltaY * stepZ, nextZ);
++            }
++
++            x = MathHelper.floor(start.x) - (axis == 0 && endX < x ? 1 : 0);
++            y = MathHelper.floor(start.y) - (axis == 1 && endY < y ? 1 : 0);
++            z = MathHelper.floor(start.z) - (axis == 2 && endZ < z ? 1 : 0);
++            currentBlock.c(x, y, z);
++        }
++
++        return false;
++    }
++
++    private boolean isRayTraceBlocked(World world, BlockPosition blockPosition) {
++        if (blockPosition.getY() < 0 || blockPosition.getY() >= 256) {
++            return true;
++        }
++
++        IBlockData blockData = world.getTypeIfLoaded(blockPosition);
++        return blockData == null || solidGlobal[Block.REGISTRY_ID.getId(blockData)];
 +    }
 +
 +    private boolean isChunkSentToPlayer(EntityPlayer player, BlockPosition blockPosition) {
