@@ -1,0 +1,986 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Thu, 11 Jun 2026 22:51:09 -0400
+Subject: [PATCH] Add anti freecam hahaha
+
+
+diff --git a/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java b/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
+index 1c89c85f395764da3ecf4d8100b019983cd59dbd..2ae3c8b129279cf877b0d418bb60960bc77d881c 100644
+--- a/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
++++ b/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
+@@ -5,6 +5,7 @@ import java.util.List;
+ 
+ import com.destroystokyo.paper.antixray.ChunkPacketBlockControllerAntiXray.ChunkEdgeMode;
+ import com.destroystokyo.paper.antixray.ChunkPacketBlockControllerAntiXray.EngineMode;
++import net.minecraft.server.MathHelper;
+ import net.minecraft.server.MinecraftServer;
+ import org.bukkit.Bukkit;
+ import org.bukkit.configuration.file.YamlConfiguration;
+@@ -69,6 +70,59 @@ public class PaperWorldConfig {
+         return config.getString("world-settings." + worldName + "." + path, config.getString("world-settings.default." + path));
+     }
+ 
++    private boolean getAntiFreecamBoolean(String path, boolean def) {
++        Object value = getAntiFreecamValue(path, def);
++        if (value instanceof Boolean) {
++            return ((Boolean) value).booleanValue();
++        }
++
++        if (value instanceof String) {
++            return Boolean.parseBoolean((String) value);
++        }
++
++        return def;
++    }
++
++    private int getAntiFreecamInt(String path, int def) {
++        Object value = getAntiFreecamValue(path, def);
++        if (value instanceof Number) {
++            return ((Number) value).intValue();
++        }
++
++        if (value instanceof String) {
++            try {
++                return Integer.parseInt((String) value);
++            } catch (NumberFormatException ignored) {
++                return def;
++            }
++        }
++
++        return def;
++    }
++
++    private String getAntiFreecamString(String path, String def) {
++        Object value = getAntiFreecamValue(path, def);
++        return value == null ? def : value.toString();
++    }
++
++    private Object getAntiFreecamValue(String path, Object def) {
++        String fullPath = "anti-freecam." + path;
++        String worldPath = "world-settings." + worldName + "." + fullPath;
++        String defaultPath = "world-settings.default." + fullPath;
++
++        config.addDefault(defaultPath, def);
++
++        if (config.get(worldPath) != null) {
++            return config.get(worldPath);
++        }
++
++        if (config.get(fullPath) != null) {
++            return config.get(fullPath);
++        }
++
++        return config.get(defaultPath, def);
++    }
++
+     public int cactusMaxHeight;
+     public int reedMaxHeight;
+     private void blockGrowthHeight() {
+@@ -457,6 +511,18 @@ public class PaperWorldConfig {
+     public List<Object> hiddenTileEntities;
+     public List<Object> replacementBlocks;
+     public List<Object> rayTraceReplacementBlocks;
++    public boolean antiFreecam;
++    public int antiFreecamMaskBelowY;
++    public String antiFreecamMaskBlock;
++    public int antiFreecamInitialRadius;
++    public int antiFreecamMaxRadius;
++    public int antiFreecamChunksPerTick;
++    public int antiFreecamRemaskChunksPerTick;
++    public int antiFreecamVerticalGrace;
++    public int antiFreecamSurfaceRemaskDelayTicks;
++    public int antiFreecamRepairIntervalTicks;
++    public int antiFreecamElytraRadiusMultiplier;
++    public boolean antiFreecamHideEntities;
+     private void antiXray() {
+         antiXray = getBoolean("anti-xray.enabled", false);
+         asynchronous = true;
+@@ -476,6 +542,20 @@ public class PaperWorldConfig {
+         replacementBlocks = getList("anti-xray.replacement-blocks", Arrays.asList((Object) "stone", "planks"));
+         rayTraceReplacementBlocks = getList("anti-xray.ray-trace-replacement-blocks", replacementBlocks);
+         log("Anti-Xray: " + (antiXray ? "enabled" : "disabled") + " / Engine Mode: " + engineMode.getDescription() + " / Chunk Edge Mode: " + chunkEdgeMode.getDescription() + " / Up to " + ((maxChunkSectionIndex + 1) * 16) + " blocks / Update Radius: " + updateRadius + " / Ray Trace Exposed Blocks: " + rayTraceExposedBlocks);
++
++        antiFreecam = getAntiFreecamBoolean("enabled", false);
++        antiFreecamMaskBelowY = MathHelper.clamp(getAntiFreecamInt("mask-below-y", 64), 0, 256);
++        antiFreecamMaskBlock = getAntiFreecamString("mask-block", "stone");
++        antiFreecamInitialRadius = MathHelper.clamp(getAntiFreecamInt("initial-radius", 1), 0, 64);
++        antiFreecamMaxRadius = MathHelper.clamp(getAntiFreecamInt("max-radius", 6), antiFreecamInitialRadius, 64);
++        antiFreecamChunksPerTick = Math.max(getAntiFreecamInt("chunks-per-tick", 4), 1);
++        antiFreecamRemaskChunksPerTick = Math.max(getAntiFreecamInt("remask-chunks-per-tick", Math.max(1, antiFreecamChunksPerTick / 2)), 1);
++        antiFreecamVerticalGrace = MathHelper.clamp(getAntiFreecamInt("vertical-grace", 3), 0, 32);
++        antiFreecamSurfaceRemaskDelayTicks = Math.max(getAntiFreecamInt("surface-remask-delay-ticks", 10), 0);
++        antiFreecamRepairIntervalTicks = Math.max(getAntiFreecamInt("repair-interval-ticks", 20), 0);
++        antiFreecamElytraRadiusMultiplier = Math.max(getAntiFreecamInt("elytra-radius-multiplier", 2), 1);
++        antiFreecamHideEntities = getAntiFreecamBoolean("hide-entities", true);
++        log("Anti-Freecam: " + (antiFreecam ? "enabled" : "disabled") + " / Mask Below Y: " + antiFreecamMaskBelowY + " / Initial Radius: " + antiFreecamInitialRadius + " / Max Radius: " + antiFreecamMaxRadius + " / Chunks Per Tick: " + antiFreecamChunksPerTick + " / Remask Chunks Per Tick: " + antiFreecamRemaskChunksPerTick + " / Vertical Grace: " + antiFreecamVerticalGrace + " / Surface Remask Delay: " + antiFreecamSurfaceRemaskDelayTicks + " / Repair Interval: " + antiFreecamRepairIntervalTicks + " / Hide Entities: " + antiFreecamHideEntities);
+     }
+ 
+     public int expMergeMaxValue;
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
+index 6b2208a6b5f4e6670c6bde95b4ee52a3e86faf8e..2b5615852059d6c5d0118790ee1c18ad29b921a0 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockController.java
+@@ -2,6 +2,7 @@ package com.destroystokyo.paper.antixray;
+ 
+ import net.minecraft.server.BlockPosition;
+ import net.minecraft.server.Chunk;
++import net.minecraft.server.Entity;
+ import net.minecraft.server.EntityPlayer;
+ import net.minecraft.server.IBlockData;
+ import net.minecraft.server.PacketPlayOutMapChunk;
+@@ -27,6 +28,18 @@ public class ChunkPacketBlockController {
+         return null;
+     }
+ 
++    public PacketPlayOutMapChunkInfo getPacketPlayOutMapChunkInfo(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, EntityPlayer player) {
++        return getPacketPlayOutMapChunkInfo(packetPlayOutMapChunk, chunk, chunkSectionSelector);
++    }
++
++    public boolean isChunkPacketPlayerSpecific() {
++        return false;
++    }
++
++    public boolean shouldTrackEntity(EntityPlayer player, Entity entity) {
++        return true;
++    }
++
+     public void preparePacket(PacketPlayOutMapChunk packetPlayOutMapChunk, PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo) {
+ 
+     }
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a75b4ce22 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+@@ -1,8 +1,10 @@
+ package com.destroystokyo.paper.antixray;
+ 
+ import java.lang.ref.WeakReference;
++import java.util.ArrayDeque;
+ import java.util.ArrayList;
+ import java.util.Collections;
++import java.util.Deque;
+ import java.util.HashMap;
+ import java.util.HashSet;
+ import java.util.List;
+@@ -24,6 +26,7 @@ import net.minecraft.server.ChunkSection;
+ import net.minecraft.server.DataPalette;
+ import net.minecraft.server.DataPaletteBlock;
+ import net.minecraft.server.DataPaletteGlobal;
++import net.minecraft.server.Entity;
+ import net.minecraft.server.EntityPlayer;
+ import net.minecraft.server.IBlockData;
+ import net.minecraft.server.MathHelper;
+@@ -52,6 +55,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             {0.5D, 0.5D, 0.875D}
+     };
+     private final ExecutorService executorService;
++    private final boolean antiXrayEnabled;
+     private final boolean asynchronous;
+     private final EngineMode engineMode;
+     private final ChunkEdgeMode chunkEdgeMode;
+@@ -62,6 +66,20 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     private final double rayTraceDistanceSquared;
+     private final int rayTraceInterval;
+     private final int rayTraceMaxBlockCountPerChunk;
++    private final boolean antiFreecamEnabled;
++    private final int antiFreecamMaskBelowY;
++    private final int antiFreecamMaskMaxChunkSectionIndex;
++    private final int antiFreecamChunkSectionSelector;
++    private final int antiFreecamInitialRadius;
++    private final int antiFreecamMaxRadius;
++    private final int antiFreecamChunksPerTick;
++    private final int antiFreecamRemaskChunksPerTick;
++    private final int antiFreecamVerticalGrace;
++    private final int antiFreecamSurfaceRemaskDelayTicks;
++    private final int antiFreecamRepairIntervalTicks;
++    private final int antiFreecamElytraRadiusMultiplier;
++    private final boolean antiFreecamHideEntities;
++    private final IBlockData antiFreecamMaskBlockData;
+     private final IBlockData[] predefinedBlockData;
+     private final IBlockData[] predefinedBlockDataStone;
+     private final IBlockData[] predefinedBlockDataNetherrack;
+@@ -81,18 +99,34 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     private final Map<Long, RayTraceChunk> rayTraceChunks = new ConcurrentHashMap<>();
+     private final Map<EntityPlayer, Set<BlockPosition>> visibleRayTraceBlocks = Collections.synchronizedMap(new WeakHashMap<EntityPlayer, Set<BlockPosition>>());
+     private final Map<EntityPlayer, Map<BlockPosition, Integer>> invisibleRayTraceBlockMisses = Collections.synchronizedMap(new WeakHashMap<EntityPlayer, Map<BlockPosition, Integer>>());
++    private final Map<EntityPlayer, AntiFreecamPlayerState> antiFreecamPlayerStates = Collections.synchronizedMap(new WeakHashMap<EntityPlayer, AntiFreecamPlayerState>());
+ 
+     public ChunkPacketBlockControllerAntiXray(PaperWorldConfig paperWorldConfig) {
++        antiXrayEnabled = paperWorldConfig.antiXray;
+         asynchronous = paperWorldConfig.asynchronous;
+         engineMode = paperWorldConfig.engineMode;
+         chunkEdgeMode = paperWorldConfig.chunkEdgeMode;
+         maxChunkSectionIndex = paperWorldConfig.maxChunkSectionIndex;
+         updateRadius = paperWorldConfig.updateRadius;
+-        rayTraceExposedBlocks = paperWorldConfig.rayTraceExposedBlocks && paperWorldConfig.rayTraceDistance > 0 && paperWorldConfig.rayTraceMaxBlockCountPerChunk > 0;
++        rayTraceExposedBlocks = antiXrayEnabled && paperWorldConfig.rayTraceExposedBlocks && paperWorldConfig.rayTraceDistance > 0 && paperWorldConfig.rayTraceMaxBlockCountPerChunk > 0;
+         rayTraceDistance = paperWorldConfig.rayTraceDistance;
+         rayTraceDistanceSquared = (double) rayTraceDistance * (double) rayTraceDistance;
+         rayTraceInterval = paperWorldConfig.rayTraceInterval;
+         rayTraceMaxBlockCountPerChunk = paperWorldConfig.rayTraceMaxBlockCountPerChunk;
++        antiFreecamEnabled = paperWorldConfig.antiFreecam && paperWorldConfig.antiFreecamMaskBelowY > 0;
++        antiFreecamMaskBelowY = paperWorldConfig.antiFreecamMaskBelowY;
++        antiFreecamMaskMaxChunkSectionIndex = antiFreecamMaskBelowY <= 0 ? -1 : Math.min(15, (antiFreecamMaskBelowY - 1) >> 4);
++        antiFreecamChunkSectionSelector = getChunkSectionSelector(antiFreecamMaskMaxChunkSectionIndex);
++        antiFreecamInitialRadius = paperWorldConfig.antiFreecamInitialRadius;
++        antiFreecamMaxRadius = paperWorldConfig.antiFreecamMaxRadius;
++        antiFreecamChunksPerTick = paperWorldConfig.antiFreecamChunksPerTick;
++        antiFreecamRemaskChunksPerTick = paperWorldConfig.antiFreecamRemaskChunksPerTick;
++        antiFreecamVerticalGrace = paperWorldConfig.antiFreecamVerticalGrace;
++        antiFreecamSurfaceRemaskDelayTicks = paperWorldConfig.antiFreecamSurfaceRemaskDelayTicks;
++        antiFreecamRepairIntervalTicks = paperWorldConfig.antiFreecamRepairIntervalTicks;
++        antiFreecamElytraRadiusMultiplier = paperWorldConfig.antiFreecamElytraRadiusMultiplier;
++        antiFreecamHideEntities = paperWorldConfig.antiFreecamHideEntities;
++        antiFreecamMaskBlockData = getConfiguredBlockData(paperWorldConfig.antiFreecamMaskBlock, Blocks.STONE.getBlockData());
+ 
+         if (asynchronous) {
+             executorService = getExecutorServiceInstance();
+@@ -106,9 +140,9 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             toObfuscate = new ArrayList<Object>(paperWorldConfig.hiddenBlocks);
+             addConfiguredTileEntities(toObfuscate, paperWorldConfig.hiddenTileEntities);
+             predefinedBlockData = null;
+-            predefinedBlockDataStone = new IBlockData[] {Blocks.STONE.getBlockData()};
+-            predefinedBlockDataNetherrack = new IBlockData[] {Blocks.NETHERRACK.getBlockData()};
+-            predefinedBlockDataEndStone = new IBlockData[] {Blocks.END_STONE.getBlockData()};
++            predefinedBlockDataStone = mergeBlockData(new IBlockData[] {Blocks.STONE.getBlockData()}, new IBlockData[] {antiFreecamMaskBlockData});
++            predefinedBlockDataNetherrack = mergeBlockData(new IBlockData[] {Blocks.NETHERRACK.getBlockData()}, new IBlockData[] {antiFreecamMaskBlockData});
++            predefinedBlockDataEndStone = mergeBlockData(new IBlockData[] {Blocks.END_STONE.getBlockData()}, new IBlockData[] {antiFreecamMaskBlockData});
+             rayTraceReplacementBlockData = null;
+             predefinedBlockDataBits = new int[] {1};
+             predefinedBlockDataBitsGlobal = null;
+@@ -136,7 +170,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             addConfiguredTileEntities(toObfuscate, paperWorldConfig.hiddenTileEntities);
+             IBlockData[] normalObfuscationBlockData = obfuscationBlockData.size() == 0 ? new IBlockData[] {Blocks.DIAMOND_ORE.getBlockData()} : obfuscationBlockData.toArray(new IBlockData[obfuscationBlockData.size()]);
+             rayTraceReplacementBlockData = getConfiguredBlockData(paperWorldConfig.rayTraceReplacementBlocks, Blocks.STONE.getBlockData());
+-            predefinedBlockData = mergeBlockData(normalObfuscationBlockData, rayTraceReplacementBlockData);
++            predefinedBlockData = mergeBlockData(mergeBlockData(normalObfuscationBlockData, rayTraceReplacementBlockData), new IBlockData[] {antiFreecamMaskBlockData});
+             predefinedBlockDataStone = null;
+             predefinedBlockDataNetherrack = null;
+             predefinedBlockDataEndStone = null;
+@@ -229,6 +263,19 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         return blockData.toArray(new IBlockData[blockData.size()]);
+     }
+ 
++    private static IBlockData getConfiguredBlockData(String blockId, IBlockData fallbackBlockData) {
++        Block block = Block.getByName(blockId);
++        return block == null ? fallbackBlockData : block.getBlockData();
++    }
++
++    private static int getChunkSectionSelector(int maxChunkSectionIndex) {
++        if (maxChunkSectionIndex < 0) {
++            return 0;
++        }
++
++        return maxChunkSectionIndex >= 15 ? 0xffff : (1 << (maxChunkSectionIndex + 1)) - 1;
++    }
++
+     private static IBlockData[] mergeBlockData(IBlockData[] first, IBlockData[] second) {
+         List<IBlockData> blockData = new ArrayList<IBlockData>(first.length + second.length);
+ 
+@@ -280,7 +327,9 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     @Override
+     public IBlockData[] getPredefinedBlockData(Chunk chunk, int chunkSectionIndex) {
+         //Return the block data which should be added to the data palettes so that they can be used for the obfuscation
+-        if (chunkSectionIndex <= maxChunkSectionIndex) {
++        int maxPredefinedChunkSectionIndex = Math.max(antiXrayEnabled ? maxChunkSectionIndex : -1, antiFreecamEnabled ? antiFreecamMaskMaxChunkSectionIndex : -1);
++
++        if (chunkSectionIndex <= maxPredefinedChunkSectionIndex) {
+             switch (engineMode) {
+                 case HIDE:
+                     switch (chunk.world.getWorld().getEnvironment()) {
+@@ -302,6 +351,10 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     @Override
+     public boolean onChunkPacketCreate(Chunk chunk, int chunkSectionSelector, boolean force) {
+         //Load nearby chunks if necessary
++        if (!antiXrayEnabled) {
++            return true;
++        }
++
+         if (chunkEdgeMode == ChunkEdgeMode.WAIT && !force) {
+             if (chunk.world.getChunkIfLoaded(chunk.locX - 1, chunk.locZ) == null || chunk.world.getChunkIfLoaded(chunk.locX + 1, chunk.locZ) == null || chunk.world.getChunkIfLoaded(chunk.locX, chunk.locZ - 1) == null || chunk.world.getChunkIfLoaded(chunk.locX, chunk.locZ + 1) == null) {
+                 //Don't create the chunk packet now, wait until nearby chunks are loaded and create it later
+@@ -320,12 +373,46 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+ 
+     @Override
+     public PacketPlayOutMapChunkInfoAntiXray getPacketPlayOutMapChunkInfo(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector) {
++        return getPacketPlayOutMapChunkInfo(packetPlayOutMapChunk, chunk, chunkSectionSelector, null);
++    }
++
++    @Override
++    public PacketPlayOutMapChunkInfoAntiXray getPacketPlayOutMapChunkInfo(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, EntityPlayer player) {
+         //Return a new instance to collect data and objects in the right state while creating the chunk packet for thread safe access later
+-        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = new PacketPlayOutMapChunkInfoAntiXray(packetPlayOutMapChunk, chunk, chunkSectionSelector, this);
++        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = new PacketPlayOutMapChunkInfoAntiXray(packetPlayOutMapChunk, chunk, chunkSectionSelector, player, this);
+         packetPlayOutMapChunkInfoAntiXray.setNearbyChunks(chunk.world.getChunkIfLoaded(chunk.locX - 1, chunk.locZ), chunk.world.getChunkIfLoaded(chunk.locX + 1, chunk.locZ), chunk.world.getChunkIfLoaded(chunk.locX, chunk.locZ - 1), chunk.world.getChunkIfLoaded(chunk.locX, chunk.locZ + 1));
+         return packetPlayOutMapChunkInfoAntiXray;
+     }
+ 
++    @Override
++    public boolean isChunkPacketPlayerSpecific() {
++        return antiFreecamEnabled;
++    }
++
++    @Override
++    public boolean shouldTrackEntity(EntityPlayer player, Entity entity) {
++        if (!antiFreecamEnabled || !antiFreecamHideEntities || player == null || entity == null || player == entity || player.world != entity.world) {
++            return true;
++        }
++
++        if (entity.locY >= (double) antiFreecamMaskBelowY) {
++            return true;
++        }
++
++        if (!isAntiFreecamUnderground(player)) {
++            return false;
++        }
++
++        AntiFreecamPlayerState state = getAntiFreecamPlayerState(player);
++        int chunkX = MathHelper.floor(entity.locX) >> 4;
++        int chunkZ = MathHelper.floor(entity.locZ) >> 4;
++        long chunkKey = ChunkCoordIntPair.asLong(chunkX, chunkZ);
++
++        synchronized (state) {
++            return state.revealedChunks.contains(chunkKey) || isWithinAntiFreecamRadius(player, chunkX, chunkZ, getAntiFreecamTargetRadius(player));
++        }
++    }
++
+     @Override
+     public void preparePacket(PacketPlayOutMapChunk packetPlayOutMapChunk, PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo) {
+         if (!rayTraceExposedBlocks || !(packetPlayOutMapChunkInfo instanceof PacketPlayOutMapChunkInfoAntiXray)) {
+@@ -344,6 +431,10 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+ 
+     @Override
+     public boolean shouldHideTileEntity(PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo, BlockPosition blockPosition) {
++        if (shouldHideAntiFreecamEntityData(packetPlayOutMapChunkInfo == null ? null : packetPlayOutMapChunkInfo.getPlayer(), packetPlayOutMapChunkInfo == null ? null : packetPlayOutMapChunkInfo.getChunk().world, blockPosition)) {
++            return true;
++        }
++
+         if (!rayTraceExposedBlocks || !(packetPlayOutMapChunkInfo instanceof PacketPlayOutMapChunkInfoAntiXray)) {
+             return false;
+         }
+@@ -384,6 +475,8 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         boolean[] obfuscateTemp = null;
+         dataBitsReader.setDataBits(packetPlayOutMapChunkInfoAntiXray.getData());
+         dataBitsWriter.setDataBits(packetPlayOutMapChunkInfoAntiXray.getData());
++
++        if (antiXrayEnabled) {
+         int counter = 0;
+ 
+         for (int chunkSectionIndex = 0; chunkSectionIndex <= maxChunkSectionIndex; chunkSectionIndex++) {
+@@ -471,9 +564,136 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         }
+ 
+         hideRayTraceBlocks(packetPlayOutMapChunkInfoAntiXray);
++        }
++
++        hideAntiFreecamBlocks(packetPlayOutMapChunkInfoAntiXray);
+         packetPlayOutMapChunkInfoAntiXray.getPacketPlayOutMapChunk().setReady(true);
+     }
+ 
++    private void hideAntiFreecamBlocks(PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray) {
++        if (!antiFreecamEnabled || antiFreecamMaskMaxChunkSectionIndex < 0 || shouldRevealAntiFreecamChunk(packetPlayOutMapChunkInfoAntiXray.getPlayer(), packetPlayOutMapChunkInfoAntiXray.getChunk())) {
++            return;
++        }
++
++        dataBitsWriter.setDataBits(packetPlayOutMapChunkInfoAntiXray.getData());
++
++        for (int chunkSectionIndex = 0; chunkSectionIndex <= antiFreecamMaskMaxChunkSectionIndex; chunkSectionIndex++) {
++            if (!packetPlayOutMapChunkInfoAntiXray.isWritten(chunkSectionIndex) || packetPlayOutMapChunkInfoAntiXray.getDataPalette(chunkSectionIndex) == null) {
++                continue;
++            }
++
++            int maskBlockDataBits = getAntiFreecamMaskBlockDataBits(packetPlayOutMapChunkInfoAntiXray, chunkSectionIndex);
++            dataBitsWriter.setBitsPerValue(packetPlayOutMapChunkInfoAntiXray.getBitsPerValue(chunkSectionIndex));
++            dataBitsWriter.setIndex(packetPlayOutMapChunkInfoAntiXray.getDataBitsIndex(chunkSectionIndex));
++            int baseY = chunkSectionIndex << 4;
++
++            for (int y = 0; y < 16; y++) {
++                boolean maskY = baseY + y < antiFreecamMaskBelowY;
++
++                for (int z = 0; z < 16; z++) {
++                    for (int x = 0; x < 16; x++) {
++                        if (maskY) {
++                            dataBitsWriter.write(maskBlockDataBits);
++                        } else {
++                            dataBitsWriter.skip();
++                        }
++                    }
++                }
++            }
++
++            dataBitsWriter.finish();
++        }
++    }
++
++    private int getAntiFreecamMaskBlockDataBits(PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray, int chunkSectionIndex) {
++        if (packetPlayOutMapChunkInfoAntiXray.getDataPalette(chunkSectionIndex) instanceof DataPaletteGlobal) {
++            return Block.REGISTRY_ID.getId(antiFreecamMaskBlockData);
++        }
++
++        return packetPlayOutMapChunkInfoAntiXray.getDataPalette(chunkSectionIndex).getDataBits(antiFreecamMaskBlockData);
++    }
++
++    private boolean shouldRevealAntiFreecamChunk(EntityPlayer player, Chunk chunk) {
++        if (!antiFreecamEnabled) {
++            return true;
++        }
++
++        if (player == null || chunk == null || player.world != chunk.world) {
++            return false;
++        }
++
++        if (!isAntiFreecamUnderground(player)) {
++            return false;
++        }
++
++        long chunkKey = ChunkCoordIntPair.asLong(chunk.locX, chunk.locZ);
++        AntiFreecamPlayerState state = getAntiFreecamPlayerState(player);
++
++        synchronized (state) {
++            if (state.revealedChunks.contains(chunkKey)) {
++                return true;
++            }
++
++            if (isWithinAntiFreecamRadius(player, chunk.locX, chunk.locZ, antiFreecamInitialRadius)) {
++                if (state.revealedChunks.add(chunkKey)) {
++                    queueAntiFreecamReveal(state, chunkKey);
++
++                    if (antiFreecamHideEntities) {
++                        state.entityTrackerRefreshNeeded = true;
++                    }
++                }
++
++                return true;
++            }
++        }
++
++        return false;
++    }
++
++    private boolean shouldHideAntiFreecamBlock(EntityPlayer player, World world, BlockPosition blockPosition) {
++        if (!antiFreecamEnabled || blockPosition == null || blockPosition.getY() >= antiFreecamMaskBelowY) {
++            return false;
++        }
++
++        if (player == null || world == null || player.world != world) {
++            return true;
++        }
++
++        if (!isAntiFreecamUnderground(player)) {
++            return true;
++        }
++
++        Chunk chunk = world.getChunkIfLoaded(blockPosition);
++        return chunk == null || !shouldRevealAntiFreecamChunk(player, chunk);
++    }
++
++    private boolean shouldHideAntiFreecamEntityData(EntityPlayer player, World world, BlockPosition blockPosition) {
++        return antiFreecamHideEntities && shouldHideAntiFreecamBlock(player, world, blockPosition);
++    }
++
++    private boolean isAntiFreecamUnderground(EntityPlayer player) {
++        return player != null && player.locY < (double) (antiFreecamMaskBelowY + antiFreecamVerticalGrace);
++    }
++
++    private boolean isWithinAntiFreecamRadius(EntityPlayer player, int chunkX, int chunkZ, int radius) {
++        int playerChunkX = MathHelper.floor(player.locX) >> 4;
++        int playerChunkZ = MathHelper.floor(player.locZ) >> 4;
++        return Math.abs(chunkX - playerChunkX) <= radius && Math.abs(chunkZ - playerChunkZ) <= radius;
++    }
++
++    private AntiFreecamPlayerState getAntiFreecamPlayerState(EntityPlayer player) {
++        synchronized (antiFreecamPlayerStates) {
++            AntiFreecamPlayerState state = antiFreecamPlayerStates.get(player);
++
++            if (state == null) {
++                state = new AntiFreecamPlayerState();
++                antiFreecamPlayerStates.put(player, state);
++            }
++
++            return state;
++        }
++    }
++
+     private List<BlockPosition> collectRayTraceBlocks(PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray) {
+         List<BlockPosition> rayTraceBlocks = new ArrayList<>();
+         Chunk chunk = packetPlayOutMapChunkInfoAntiXray.getChunk();
+@@ -679,27 +899,31 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+ 
+     @Override
+     public boolean hasPlayerSpecificBlockData(World world, BlockPosition blockPosition) {
+-        return rayTraceExposedBlocks && isTrackedRayTraceBlock(world, blockPosition);
++        return (antiFreecamEnabled && blockPosition != null && blockPosition.getY() < antiFreecamMaskBelowY) || (rayTraceExposedBlocks && isTrackedRayTraceBlock(world, blockPosition));
+     }
+ 
+     @Override
+     public IBlockData getPlayerSpecificBlockData(EntityPlayer player, World world, BlockPosition blockPosition) {
++        if (shouldHideAntiFreecamBlock(player, world, blockPosition)) {
++            return antiFreecamMaskBlockData;
++        }
++
+         return shouldHideRayTraceBlock(player, world, blockPosition) ? getReplacementBlockData(world, blockPosition.getY()) : null;
+     }
+ 
+     @Override
+     public boolean shouldSendTileEntityUpdate(EntityPlayer player, TileEntity tileEntity) {
+-        return tileEntity == null || !shouldHideRayTraceBlock(player, tileEntity.getWorld(), tileEntity.getPosition());
++        return tileEntity == null || (!shouldHideAntiFreecamEntityData(player, tileEntity.getWorld(), tileEntity.getPosition()) && !shouldHideRayTraceBlock(player, tileEntity.getWorld(), tileEntity.getPosition()));
+     }
+ 
+     @Override
+     public boolean shouldSendBlockAction(EntityPlayer player, World world, BlockPosition blockPosition) {
+-        return !shouldHideRayTraceBlock(player, world, blockPosition);
++        return !shouldHideAntiFreecamEntityData(player, world, blockPosition) && !shouldHideRayTraceBlock(player, world, blockPosition);
+     }
+ 
+     @Override
+     public boolean shouldSendLevelEvent(EntityPlayer player, World world, int eventId, BlockPosition blockPosition) {
+-        return eventId != 2004 || !shouldHideRayTraceBlock(player, world, blockPosition);
++        return !shouldHideAntiFreecamEntityData(player, world, blockPosition) && (eventId != 2004 || !shouldHideRayTraceBlock(player, world, blockPosition));
+     }
+ 
+     private boolean shouldHideRayTraceBlock(EntityPlayer player, World world, BlockPosition blockPosition) {
+@@ -758,7 +982,246 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         }
+     }
+ 
++    private void tickAntiFreecamPlayer(EntityPlayer player) {
++        if (!antiFreecamEnabled || !(player.world instanceof WorldServer) || player.playerConnection == null) {
++            return;
++        }
++
++        AntiFreecamPlayerState state = getAntiFreecamPlayerState(player);
++        boolean refreshTracker = false;
++
++        synchronized (state) {
++            boolean underground = isAntiFreecamUnderground(player);
++
++            if (!underground) {
++                if (state.underground) {
++                    refreshTracker = true;
++                }
++
++                state.underground = false;
++                state.pendingRevealChunks.clear();
++                state.queuedRevealChunks.clear();
++
++                if (state.surfaceTicks++ >= antiFreecamSurfaceRemaskDelayTicks) {
++                    queueAllAntiFreecamRemasks(state);
++                    state.centerChunkX = Integer.MIN_VALUE;
++                    state.centerChunkZ = Integer.MIN_VALUE;
++                    state.targetRadius = -1;
++                }
++            } else {
++                int chunkX = MathHelper.floor(player.locX) >> 4;
++                int chunkZ = MathHelper.floor(player.locZ) >> 4;
++                int targetRadius = getAntiFreecamTargetRadius(player);
++
++                state.surfaceTicks = 0;
++
++                if (!state.underground || state.centerChunkX != chunkX || state.centerChunkZ != chunkZ || state.targetRadius != targetRadius) {
++                    refreshTracker = true;
++                    state.underground = true;
++                    state.centerChunkX = chunkX;
++                    state.centerChunkZ = chunkZ;
++                    state.targetRadius = targetRadius;
++                    queueAntiFreecamReveals(state, chunkX, chunkZ, targetRadius);
++                } else if (antiFreecamRepairIntervalTicks > 0 && player.ticksLived % antiFreecamRepairIntervalTicks == 0) {
++                    queueAntiFreecamReveals(state, chunkX, chunkZ, targetRadius);
++                }
++
++                queueAntiFreecamRemasksOutside(player, state, chunkX, chunkZ, targetRadius);
++            }
++
++            refreshTracker |= processAntiFreecamRemaskQueue(player, state);
++            refreshTracker |= processAntiFreecamRevealQueue(player, state);
++
++            if (state.entityTrackerRefreshNeeded) {
++                state.entityTrackerRefreshNeeded = false;
++                refreshTracker = true;
++            }
++        }
++
++        if (refreshTracker && player.world instanceof WorldServer) {
++            ((WorldServer) player.world).getTracker().a(player);
++        }
++    }
++
++    private int getAntiFreecamTargetRadius(EntityPlayer player) {
++        int radius = antiFreecamMaxRadius;
++
++        if (player.cP()) {
++            radius = Math.min(64, radius * antiFreecamElytraRadiusMultiplier);
++        }
++
++        return Math.min(player.getViewDistance(), Math.max(antiFreecamInitialRadius, radius));
++    }
++
++    private void queueAntiFreecamReveals(AntiFreecamPlayerState state, int centerChunkX, int centerChunkZ, int radius) {
++        for (int ring = 0; ring <= radius; ring++) {
++            for (int dx = -ring; dx <= ring; dx++) {
++                for (int dz = -ring; dz <= ring; dz++) {
++                    if (Math.max(Math.abs(dx), Math.abs(dz)) != ring) {
++                        continue;
++                    }
++
++                    queueAntiFreecamReveal(state, ChunkCoordIntPair.asLong(centerChunkX + dx, centerChunkZ + dz));
++                }
++            }
++        }
++    }
++
++    private void queueAntiFreecamReveal(AntiFreecamPlayerState state, long chunkKey) {
++        state.queuedRemaskChunks.remove(chunkKey);
++
++        if (!state.queuedRevealChunks.contains(chunkKey) && state.queuedRevealChunks.add(chunkKey)) {
++            state.pendingRevealChunks.addLast(chunkKey);
++        }
++    }
++
++    private void queueAllAntiFreecamRemasks(AntiFreecamPlayerState state) {
++        for (Long chunkKey : new ArrayList<Long>(state.revealedChunks)) {
++            queueAntiFreecamRemask(state, chunkKey.longValue());
++        }
++    }
++
++    private void queueAntiFreecamRemasksOutside(EntityPlayer player, AntiFreecamPlayerState state, int centerChunkX, int centerChunkZ, int radius) {
++        for (Long chunkKeyObject : new ArrayList<Long>(state.revealedChunks)) {
++            long chunkKey = chunkKeyObject.longValue();
++            int chunkX = getChunkX(chunkKey);
++            int chunkZ = getChunkZ(chunkKey);
++
++            if (!isWithinAntiFreecamRadius(centerChunkX, centerChunkZ, chunkX, chunkZ, radius) || !isChunkSentToPlayer(player, chunkX, chunkZ)) {
++                queueAntiFreecamRemask(state, chunkKey);
++            }
++        }
++    }
++
++    private void queueAntiFreecamRemask(AntiFreecamPlayerState state, long chunkKey) {
++        if (!state.revealedChunks.contains(chunkKey)) {
++            return;
++        }
++
++        state.queuedRevealChunks.remove(chunkKey);
++
++        if (!state.queuedRemaskChunks.contains(chunkKey) && state.queuedRemaskChunks.add(chunkKey)) {
++            state.pendingRemaskChunks.addLast(chunkKey);
++        }
++    }
++
++    private boolean processAntiFreecamRevealQueue(EntityPlayer player, AntiFreecamPlayerState state) {
++        boolean changed = false;
++        int sent = 0;
++        int attempts = state.pendingRevealChunks.size();
++
++        while (sent < antiFreecamChunksPerTick && attempts-- > 0 && !state.pendingRevealChunks.isEmpty()) {
++            long chunkKey = state.pendingRevealChunks.removeFirst().longValue();
++
++            if (!state.queuedRevealChunks.remove(chunkKey)) {
++                continue;
++            }
++
++            int chunkX = getChunkX(chunkKey);
++            int chunkZ = getChunkZ(chunkKey);
++
++            if (!state.underground || !isWithinAntiFreecamRadius(state.centerChunkX, state.centerChunkZ, chunkX, chunkZ, state.targetRadius)) {
++                continue;
++            }
++
++            state.revealedChunks.add(chunkKey);
++
++            if (!sendAntiFreecamChunkPacket(player, chunkX, chunkZ)) {
++                state.revealedChunks.remove(chunkKey);
++                queueAntiFreecamReveal(state, chunkKey);
++                continue;
++            }
++
++            sent++;
++            changed = true;
++        }
++
++        return changed;
++    }
++
++    private boolean processAntiFreecamRemaskQueue(EntityPlayer player, AntiFreecamPlayerState state) {
++        boolean changed = false;
++        int sent = 0;
++        int attempts = state.pendingRemaskChunks.size();
++
++        while (sent < antiFreecamRemaskChunksPerTick && attempts-- > 0 && !state.pendingRemaskChunks.isEmpty()) {
++            long chunkKey = state.pendingRemaskChunks.removeFirst().longValue();
++
++            if (!state.queuedRemaskChunks.remove(chunkKey)) {
++                continue;
++            }
++
++            int chunkX = getChunkX(chunkKey);
++            int chunkZ = getChunkZ(chunkKey);
++
++            if (state.underground && isWithinAntiFreecamRadius(state.centerChunkX, state.centerChunkZ, chunkX, chunkZ, state.targetRadius)) {
++                queueAntiFreecamReveal(state, chunkKey);
++                continue;
++            }
++
++            boolean wasRevealed = state.revealedChunks.remove(chunkKey);
++
++            if (!wasRevealed) {
++                continue;
++            }
++
++            if (sendAntiFreecamChunkPacket(player, chunkX, chunkZ)) {
++                sent++;
++            }
++
++            changed = true;
++        }
++
++        return changed;
++    }
++
++    private boolean sendAntiFreecamChunkPacket(EntityPlayer player, int chunkX, int chunkZ) {
++        if (!(player.world instanceof WorldServer) || player.playerConnection == null || player.playerConnection.isDisconnected()) {
++            return false;
++        }
++
++        WorldServer world = (WorldServer) player.world;
++        PlayerChunk playerChunk = world.getPlayerChunkMap().getChunk(chunkX, chunkZ);
++
++        if (playerChunk == null || !playerChunk.d(player) || !playerChunk.e()) {
++            return false;
++        }
++
++        Chunk chunk = playerChunk.f();
++
++        if (chunk == null) {
++            return false;
++        }
++
++        player.playerConnection.sendPacket(new PacketPlayOutMapChunk(chunk, antiFreecamChunkSectionSelector, player));
++        world.getTracker().a(player, chunk);
++        return true;
++    }
++
++    private boolean isWithinAntiFreecamRadius(int centerChunkX, int centerChunkZ, int chunkX, int chunkZ, int radius) {
++        return Math.abs(chunkX - centerChunkX) <= radius && Math.abs(chunkZ - centerChunkZ) <= radius;
++    }
++
++    private boolean isChunkSentToPlayer(EntityPlayer player, int chunkX, int chunkZ) {
++        if (!(player.world instanceof WorldServer)) {
++            return false;
++        }
++
++        PlayerChunk playerChunk = ((WorldServer) player.world).getPlayerChunkMap().getChunk(chunkX, chunkZ);
++        return playerChunk != null && playerChunk.d(player) && playerChunk.e();
++    }
++
++    private static int getChunkX(long chunkKey) {
++        return (int) chunkKey;
++    }
++
++    private static int getChunkZ(long chunkKey) {
++        return (int) (chunkKey >> 32);
++    }
++
+     public void tickPlayer(EntityPlayer player) {
++        tickAntiFreecamPlayer(player);
++
+         if (!rayTraceExposedBlocks || player.ticksLived % rayTraceInterval != 0 || !(player.world instanceof WorldServer) || player.playerConnection == null) {
+             return;
+         }
+@@ -1286,6 +1749,10 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+ 
+     @Override
+     public void updateNearbyBlocks(World world, BlockPosition blockPosition) {
++        if (!antiXrayEnabled) {
++            return;
++        }
++
+         if (updateRadius >= 2) {
+             BlockPosition temp = blockPosition.west();
+             updateBlock(world, temp);
+@@ -1334,6 +1801,21 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         }
+     }
+ 
++    private static final class AntiFreecamPlayerState {
++
++        private boolean underground;
++        private boolean entityTrackerRefreshNeeded;
++        private int surfaceTicks;
++        private int centerChunkX = Integer.MIN_VALUE;
++        private int centerChunkZ = Integer.MIN_VALUE;
++        private int targetRadius = -1;
++        private final Set<Long> revealedChunks = new HashSet<Long>();
++        private final Set<Long> queuedRevealChunks = new HashSet<Long>();
++        private final Deque<Long> pendingRevealChunks = new ArrayDeque<Long>();
++        private final Set<Long> queuedRemaskChunks = new HashSet<Long>();
++        private final Deque<Long> pendingRemaskChunks = new ArrayDeque<Long>();
++    }
++
+     private static final class RayTraceChunk {
+ 
+         private final WeakReference<Chunk> chunk;
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfo.java b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfo.java
+index 0bd269a0793441f6cfb2e1fe072ca5e3ad7367a6..8a92e5b158e3e27d99b997f8f3de9bef218debac 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfo.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfo.java
+@@ -2,14 +2,17 @@ package com.destroystokyo.paper.antixray;
+ 
+ import net.minecraft.server.Chunk;
+ import net.minecraft.server.DataPalette;
++import net.minecraft.server.EntityPlayer;
+ import net.minecraft.server.IBlockData;
+ import net.minecraft.server.PacketPlayOutMapChunk;
++import javax.annotation.Nullable;
+ 
+ public class PacketPlayOutMapChunkInfo {
+ 
+     private final PacketPlayOutMapChunk packetPlayOutMapChunk;
+     private final Chunk chunk;
+     private final int chunkSectionSelector;
++    private final EntityPlayer player;
+     private byte[] data;
+     private final int[] bitsPerValue = new int[16];
+     private final DataPalette[] dataPalettes = new DataPalette[16];
+@@ -17,9 +20,14 @@ public class PacketPlayOutMapChunkInfo {
+     private final IBlockData[][] predefinedBlockData = new IBlockData[16][];
+ 
+     public PacketPlayOutMapChunkInfo(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector) {
++        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, null);
++    }
++
++    public PacketPlayOutMapChunkInfo(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, @Nullable EntityPlayer player) {
+         this.packetPlayOutMapChunk = packetPlayOutMapChunk;
+         this.chunk = chunk;
+         this.chunkSectionSelector = chunkSectionSelector;
++        this.player = player;
+     }
+ 
+     public PacketPlayOutMapChunk getPacketPlayOutMapChunk() {
+@@ -34,6 +42,11 @@ public class PacketPlayOutMapChunkInfo {
+         return chunkSectionSelector;
+     }
+ 
++    @Nullable
++    public EntityPlayer getPlayer() {
++        return player;
++    }
++
+     public byte[] getData() {
+         return data;
+     }
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
+index 8c46bd8a89b19e4c72b7d704feb431385320e5bf..da65eaf738c896e7bc39d632e9e7d63247d6dea8 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
+@@ -4,7 +4,9 @@ import java.util.List;
+ 
+ import net.minecraft.server.Chunk;
+ import net.minecraft.server.BlockPosition;
++import net.minecraft.server.EntityPlayer;
+ import net.minecraft.server.PacketPlayOutMapChunk;
++import javax.annotation.Nullable;
+ 
+ public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo implements Runnable {
+ 
+@@ -13,7 +15,11 @@ public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo
+     private final ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray;
+ 
+     public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray) {
+-        super(packetPlayOutMapChunk, chunk, chunkSectionSelector);
++        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, null, chunkPacketBlockControllerAntiXray);
++    }
++
++    public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, @Nullable EntityPlayer player, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray) {
++        super(packetPlayOutMapChunk, chunk, chunkSectionSelector, player);
+         this.chunkPacketBlockControllerAntiXray = chunkPacketBlockControllerAntiXray;
+     }
+ 
+diff --git a/src/main/java/net/minecraft/server/EntityTrackerEntry.java b/src/main/java/net/minecraft/server/EntityTrackerEntry.java
+index c9f6f7df36c56f7b3191c0d5b48df378766642cd..38a112ef6b1565fe93bde96be69ee0cea1f18326 100644
+--- a/src/main/java/net/minecraft/server/EntityTrackerEntry.java
++++ b/src/main/java/net/minecraft/server/EntityTrackerEntry.java
+@@ -525,6 +525,7 @@ public class EntityTrackerEntry {
+             }
+         } // Beast end
+         return d0 >= (double) (-i) && d0 <= (double) i && d1 >= (double) (-i) && d1 <= (double) i && this.tracker.a(entityplayer)
++                && this.tracker.world.chunkPacketBlockController.shouldTrackEntity(entityplayer, this.tracker) // Beast - Anti-Freecam
+                 && (!BeastConfig.delayedChunksEnabled || !entityplayer.getDelayedChunks().contains(new ChunkCoordIntPair(this.tracker.ab, this.tracker.ad))); // Beast - Delayed chunks
+     }
+ 
+diff --git a/src/main/java/net/minecraft/server/PacketPlayOutMapChunk.java b/src/main/java/net/minecraft/server/PacketPlayOutMapChunk.java
+index a73c2bfd992a85744890136922ba2ea8037bf6f3..29cc9c4583f7fb408580e9b7c9325fdab6355c47 100644
+--- a/src/main/java/net/minecraft/server/PacketPlayOutMapChunk.java
++++ b/src/main/java/net/minecraft/server/PacketPlayOutMapChunk.java
+@@ -44,7 +44,11 @@ public class PacketPlayOutMapChunk implements Packet<PacketListenerPlayOut> {
+     // Paper end
+     private static final int EXCESSIVE_TILEENTITIES_CAP = Integer.getInteger("Beast.excessiveTileEntitiesCap", 500); // Beast
+     public PacketPlayOutMapChunk(Chunk chunk, int i) {
+-        PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo = chunk.world.chunkPacketBlockController.getPacketPlayOutMapChunkInfo(this, chunk, i); // Paper - Anti-Xray - Add chunk packet info
++        this(chunk, i, null);
++    }
++
++    public PacketPlayOutMapChunk(Chunk chunk, int i, @Nullable EntityPlayer player) {
++        PacketPlayOutMapChunkInfo packetPlayOutMapChunkInfo = chunk.world.chunkPacketBlockController.getPacketPlayOutMapChunkInfo(this, chunk, i, player); // Paper - Anti-Xray - Add chunk packet info // Beast - Anti-Freecam
+         this.a = chunk.locX;
+         this.b = chunk.locZ;
+         this.f = i == '\uffff';
+diff --git a/src/main/java/net/minecraft/server/PlayerChunk.java b/src/main/java/net/minecraft/server/PlayerChunk.java
+index ce3c24fdfccf8bfdb88db0cd00a8a973fea269e6..3fd16c08fd58b373777d2b7b642e79ad318ca3e5 100644
+--- a/src/main/java/net/minecraft/server/PlayerChunk.java
++++ b/src/main/java/net/minecraft/server/PlayerChunk.java
+@@ -161,13 +161,14 @@ public class PlayerChunk {
+             this.h = 0;
+             this.done = true;
+             if (this.c.isEmpty()) return true; // Beast - Fix MC-120780
+-            PacketPlayOutMapChunk packetplayoutmapchunk = new PacketPlayOutMapChunk(this.chunk, '\uffff');
++            boolean playerSpecificChunkPacket = this.chunk.world.chunkPacketBlockController.isChunkPacketPlayerSpecific(); // Beast - Anti-Freecam
++            PacketPlayOutMapChunk packetplayoutmapchunk = playerSpecificChunkPacket ? null : new PacketPlayOutMapChunk(this.chunk, '\uffff'); // Beast - Anti-Freecam
+             Iterator iterator = this.c.iterator();
+ 
+             while (iterator.hasNext()) {
+                 EntityPlayer entityplayer = (EntityPlayer) iterator.next();
+ 
+-                entityplayer.playerConnection.sendPacket(packetplayoutmapchunk);
++                entityplayer.playerConnection.sendPacket(playerSpecificChunkPacket ? new PacketPlayOutMapChunk(this.chunk, '\uffff', entityplayer) : packetplayoutmapchunk); // Beast - Anti-Freecam
+                 this.playerChunkMap.getWorld().getTracker().a(entityplayer, this.chunk);
+             }
+ 
+@@ -178,7 +179,7 @@ public class PlayerChunk {
+     public void sendChunk(EntityPlayer entityplayer) {
+         if (this.done) {
+             this.chunk.world.chunkPacketBlockController.onChunkPacketCreate(this.chunk, '\uffff', true); // Paper - Anti-Xray - Load nearby chunks if necessary
+-            entityplayer.playerConnection.sendPacket(new PacketPlayOutMapChunk(this.chunk, '\uffff'));
++            entityplayer.playerConnection.sendPacket(this.chunk.world.chunkPacketBlockController.isChunkPacketPlayerSpecific() ? new PacketPlayOutMapChunk(this.chunk, '\uffff', entityplayer) : new PacketPlayOutMapChunk(this.chunk, '\uffff')); // Beast - Anti-Freecam
+             this.playerChunkMap.getWorld().getTracker().a(entityplayer, this.chunk);
+         }
+     }
+@@ -241,7 +242,14 @@ public class PlayerChunk {
+                 } else if (this.dirtyCount == 64) {
+                     // Paper - Anti-Xray - Loading chunks here could cause a ConcurrentModificationException #1104
+                     //this.chunk.world.chunkPacketBlockController.onChunkPacketCreate(this.chunk, this.h, true); // Paper - Anti-Xray - Load nearby chunks if necessary
+-                    this.a((Packet) (new PacketPlayOutMapChunk(this.chunk, this.h)));
++                    if (this.chunk.world.chunkPacketBlockController.isChunkPacketPlayerSpecific()) { // Beast start - Anti-Freecam
++                        for (i = 0; i < this.c.size(); ++i) {
++                            EntityPlayer player = (EntityPlayer) this.c.get(i);
++                            player.playerConnection.sendPacket(new PacketPlayOutMapChunk(this.chunk, this.h, player));
++                        }
++                    } else {
++                        this.a((Packet) (new PacketPlayOutMapChunk(this.chunk, this.h)));
++                    } // Beast end - Anti-Freecam
+                 } else {
+                     if (this.hasPlayerSpecificBlockData()) {
+                         for (i = 0; i < this.dirtyCount; ++i) {
+diff --git a/src/main/java/net/minecraft/server/World.java b/src/main/java/net/minecraft/server/World.java
+index 9c5701ca142388c6829e9c459d394dd488c21c2b..ba3dcf73ffc5f4beda53eeb0946d8b58f91efa3f 100644
+--- a/src/main/java/net/minecraft/server/World.java
++++ b/src/main/java/net/minecraft/server/World.java
+@@ -181,7 +181,7 @@ public abstract class World implements IBlockAccess {
+     protected World(IDataManager idatamanager, WorldData worlddata, WorldProvider worldprovider, MethodProfiler methodprofiler, boolean flag, ChunkGenerator gen, org.bukkit.World.Environment env) {
+         this.spigotConfig = WorldConfigCache.getSpigotConfig( worlddata.getName() ); // Spigot // Beast - Cache world configs
+         this.paperConfig = WorldConfigCache.getPaperConfig(worlddata.getName(), this.spigotConfig); // Paper // Beast - Cache world configs
+-        this.chunkPacketBlockController = this.paperConfig.antiXray ? new ChunkPacketBlockControllerAntiXray(this.paperConfig) : ChunkPacketBlockController.NO_OPERATION_INSTANCE; // Paper - Anti-Xray
++        this.chunkPacketBlockController = this.paperConfig.antiXray || this.paperConfig.antiFreecam ? new ChunkPacketBlockControllerAntiXray(this.paperConfig) : ChunkPacketBlockController.NO_OPERATION_INSTANCE; // Paper - Anti-Xray // Beast - Anti-Freecam
+         this.generator = gen;
+         this.world = new CraftWorld((WorldServer) this, gen, env);
+         this.ticksPerAnimalSpawns = this.getServer().getTicksPerAnimalSpawns(); // CraftBukkit
