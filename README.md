@@ -28,6 +28,7 @@ A Paper 1.12.2 fork of a OTHER Paper fork aims to provide extreme performance, b
 - **Dynamic View Distance (with permissions)**
 - **Raytracing Anti-Xray**
 - Ported New item names
+- **Anti-FreeCam (W.I.P)**
 
 ### Permissions
 ```
