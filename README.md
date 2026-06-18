@@ -1,6 +1,6 @@
 <table align="center">
   <tr>
-    <td align="center"><a href="https://github.com/HomoMC"><img src="logo.jpg" width="180" height="180" alt="HomoMC" style="border-radius:50%; object-fit:cover;"></a><br><b>HomoMC</b></td>
+    <td align="center"><a href="https://github.com/HomoMC"><img src="media/logo.jpg" width="180" height="180" alt="HomoMC" style="border-radius:50%; object-fit:cover;"></a><br><b>HomoMC</b></td>
     <td align="center"><a href="https://github.com/SMETeam"><img src="https://sme-mc.us/img/logo.png" width="180" height="180" alt="Snubby / SMETeam" style="border-radius:50%; object-fit:cover;"></a><br><b>Snubby / SMETeam</b></td>
   </tr>
 </table>
@@ -30,10 +30,26 @@ A Paper 1.12.2 fork of a OTHER Paper fork aims to provide extreme performance, b
 - Ported New item names
 - **Anti-FreeCam (W.I.P)**
 
+## Showcase
+
+### Raytracing Anti-Xray
+It checks if a hidden ore has a real line of sight to the player, meaning if the player cannot see it then it gets hidden to prevent ESP
+
+![raytrace](media/raytrace_showcase.gif)
+
+### Anti-Xray
+
+![xraygraph](media/anti-xray_showcase.png)
+
+### Anti-FreeCam
+It works by sending different chunk data per player; So anything below the `mask-below-y` gets hidden. So players on the surface get fake underground chunks, while players who are underground get only the area around them revealed, and old areas get hidden again to prevent Free Camera mods
+
+![freecam](media/anti-freecam_showcase.png)
+
 ### Permissions
 ```
-reaper.dynvd_<distance>
-reaper.unlimitvd
+reaper.dynvd_<distance> | the value of what you want the player to have rather than the server default
+reaper.unlimitvd | As much render distance as the player requests
 ```
 
 ### Java >= 8 is required, Java >= 21 is recommended.
