@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Sun, 21 Jun 2026 14:12:14 -0400
+Subject: [PATCH] testing via shulker crash
+
+
+diff --git a/src/main/java/net/minecraft/server/PacketDataSerializer.java b/src/main/java/net/minecraft/server/PacketDataSerializer.java
+index 2562ae6ab684ae137e5b1705b43b33a268cca148..0cbc05f0dc3444f6b5555f5f0454e3fcc67ae2ad 100644
+--- a/src/main/java/net/minecraft/server/PacketDataSerializer.java
++++ b/src/main/java/net/minecraft/server/PacketDataSerializer.java
+@@ -251,6 +251,7 @@ public class PacketDataSerializer extends ByteBuf {
+                 CraftItemStack.setItemMeta(itemstack, CraftItemStack.getItemMeta(itemstack));
+                 // Spigot end
+                 nbttagcompound = itemstack.getTag();
++                sanitizeViaBlockEntityTag(nbttagcompound);
+             }
+ 
+             this.a(nbttagcompound);
+@@ -281,6 +282,7 @@ public class PacketDataSerializer extends ByteBuf {
+             CraftItemStack.setItemMeta(itemstack, CraftItemStack.getItemMeta(itemstack));
+             // Spigot end
+             nbttagcompound = itemstack.getTag();
++            sanitizeViaBlockEntityTag(nbttagcompound);
+         }
+ 
+         // Inject tag if it does not exists with the only HideFlags
+@@ -355,6 +357,70 @@ public class PacketDataSerializer extends ByteBuf {
+     }
+     // Beast end
+ 
++    // Beast start - testing via shulker crash
++    private static void sanitizeViaBlockEntityTag(@Nullable NBTTagCompound tag) {
++        if (tag == null) {
++            return;
++        }
++
++        sanitizeBlockEntityTag(tag.getCompoundNullable("BlockEntityTag"));
++        removeEmptyCompound(tag, "BlockEntityTag");
++
++        NBTTagList items = tag.getListNullable("Items", 10);
++        if (items != null) {
++            for (int i = 0; i < items.size(); ++i) {
++                sanitizeNestedItemTag(items.get(i));
++            }
++        }
++    }
++
++    private static void sanitizeNestedItemTag(NBTTagCompound itemTag) {
++        NBTTagCompound tag = itemTag.getCompoundNullable("tag");
++        if (tag != null) {
++            sanitizeViaBlockEntityTag(tag);
++            removeEmptyCompound(itemTag, "tag");
++        }
++    }
++
++    private static void sanitizeBlockEntityTag(@Nullable NBTTagCompound blockEntityTag) {
++        if (blockEntityTag == null) {
++            return;
++        }
++
++        removeNullishString(blockEntityTag, "Lock");
++        removeNullishString(blockEntityTag, "CustomName");
++
++        NBTTagList items = blockEntityTag.getListNullable("Items", 10);
++        if (items != null) {
++            for (int i = 0; i < items.size(); ++i) {
++                sanitizeNestedItemTag(items.get(i));
++            }
++            removeEmptyList(blockEntityTag, "Items");
++        }
++    }
++
++    private static void removeNullishString(NBTTagCompound tag, String key) {
++        String value = tag.getStringNullable(key);
++        if (value != null && (value.isEmpty() || "null".equalsIgnoreCase(value))) {
++            tag.remove(key);
++        }
++    }
++
++    private static void removeEmptyCompound(NBTTagCompound tag, String key) {
++        NBTTagCompound compound = tag.getCompoundNullable(key);
++        if (compound != null && compound.isEmpty()) {
++            tag.remove(key);
++        }
++    }
++
++    private static void removeEmptyList(NBTTagCompound tag, String key) {
++        NBTTagList list = tag.getListNullable(key, 10);
++        if (list != null && list.isEmpty()) {
++            tag.remove(key);
++        }
++    }
++    // Beast end - testing via shulker crash
++
+     public ItemStack k() {
+         short short0 = this.readShort();
+ 
+@@ -369,6 +435,7 @@ public class PacketDataSerializer extends ByteBuf {
+             // CraftBukkit start
+             if (itemstack.getTag() != null) {
+                 CraftItemStack.setItemMeta(itemstack, CraftItemStack.getItemMeta(itemstack));
++                sanitizeViaBlockEntityTag(itemstack.getTag());
+             }
+             // CraftBukkit end
+             return itemstack;
