@@ -48,8 +48,9 @@ It works by sending different chunk data per player; So anything below the `mask
 
 ### Permissions
 ```
-reaper.dynvd_<distance> | the value of what you want the player to have rather than the server default
+reaper.dynvd_<distance> | The value of what you want the player to have rather than the server default
 reaper.unlimitvd | As much render distance as the player requests
+smemc.antifreecam.bypass | Bypasses the anti-freecam, useful for bedrock players as loading all the data lags their game
 ```
 
 ### Java >= 8 is required, Java >= 21 is recommended.

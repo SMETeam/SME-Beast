@@ -170,9 +170,10 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
  import net.minecraft.server.EntityPlayer;
  import net.minecraft.server.IBlockData;
  import net.minecraft.server.MathHelper;
-@@ -52,6 +55,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -52,6 +55,8 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
              {0.5D, 0.5D, 0.875D}
      };
++    private static final String ANTI_FREECAM_BYPASS_PERMISSION = "smemc.antifreecam.bypass";
      private final ExecutorService executorService;
 +    private final boolean antiXrayEnabled;
      private final boolean asynchronous;
@@ -310,7 +311,7 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
 +    public PacketPlayOutMapChunkInfoAntiXray getPacketPlayOutMapChunkInfo(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, EntityPlayer player) {
          //Return a new instance to collect data and objects in the right state while creating the chunk packet for thread safe access later
 -        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = new PacketPlayOutMapChunkInfoAntiXray(packetPlayOutMapChunk, chunk, chunkSectionSelector, this);
-+        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = new PacketPlayOutMapChunkInfoAntiXray(packetPlayOutMapChunk, chunk, chunkSectionSelector, player, this);
++        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = new PacketPlayOutMapChunkInfoAntiXray(packetPlayOutMapChunk, chunk, chunkSectionSelector, player, this, hasAntiFreecamBypass(player));
          packetPlayOutMapChunkInfoAntiXray.setNearbyChunks(chunk.world.getChunkIfLoaded(chunk.locX - 1, chunk.locZ), chunk.world.getChunkIfLoaded(chunk.locX + 1, chunk.locZ), chunk.world.getChunkIfLoaded(chunk.locX, chunk.locZ - 1), chunk.world.getChunkIfLoaded(chunk.locX, chunk.locZ + 1));
          return packetPlayOutMapChunkInfoAntiXray;
      }
@@ -322,7 +323,7 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
 +
 +    @Override
 +    public boolean shouldTrackEntity(EntityPlayer player, Entity entity) {
-+        if (!antiFreecamEnabled || !antiFreecamHideEntities || player == null || entity == null || player == entity || player.world != entity.world) {
++        if (!antiFreecamEnabled || !antiFreecamHideEntities || player == null || entity == null || player == entity || player.world != entity.world || hasAntiFreecamBypass(player)) {
 +            return true;
 +        }
 +
@@ -367,7 +368,7 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
          int counter = 0;
  
          for (int chunkSectionIndex = 0; chunkSectionIndex <= maxChunkSectionIndex; chunkSectionIndex++) {
-@@ -471,9 +564,136 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -471,9 +564,144 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
          }
  
          hideRayTraceBlocks(packetPlayOutMapChunkInfoAntiXray);
@@ -378,7 +379,7 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
      }
  
 +    private void hideAntiFreecamBlocks(PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray) {
-+        if (!antiFreecamEnabled || antiFreecamMaskMaxChunkSectionIndex < 0 || shouldRevealAntiFreecamChunk(packetPlayOutMapChunkInfoAntiXray.getPlayer(), packetPlayOutMapChunkInfoAntiXray.getChunk())) {
++        if (!antiFreecamEnabled || antiFreecamMaskMaxChunkSectionIndex < 0 || packetPlayOutMapChunkInfoAntiXray.hasAntiFreecamBypass() || shouldRevealAntiFreecamChunk(packetPlayOutMapChunkInfoAntiXray.getPlayer(), packetPlayOutMapChunkInfoAntiXray.getChunk())) {
 +            return;
 +        }
 +
@@ -466,6 +467,10 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
 +            return true;
 +        }
 +
++        if (hasAntiFreecamBypass(player)) {
++            return false;
++        }
++
 +        if (!isAntiFreecamUnderground(player)) {
 +            return true;
 +        }
@@ -480,6 +485,10 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
 +
 +    private boolean isAntiFreecamUnderground(EntityPlayer player) {
 +        return player != null && player.locY < (double) (antiFreecamMaskBelowY + antiFreecamVerticalGrace);
++    }
++
++    private boolean hasAntiFreecamBypass(EntityPlayer player) {
++        return player != null && player.getBukkitEntity().hasPermission(ANTI_FREECAM_BYPASS_PERMISSION);
 +    }
 +
 +    private boolean isWithinAntiFreecamRadius(EntityPlayer player, int chunkX, int chunkZ, int radius) {
@@ -540,7 +549,7 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
      }
  
      private boolean shouldHideRayTraceBlock(EntityPlayer player, World world, BlockPosition blockPosition) {
-@@ -758,7 +982,246 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -758,7 +982,250 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
          }
      }
  
@@ -553,50 +562,54 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
 +        boolean refreshTracker = false;
 +
 +        synchronized (state) {
-+            boolean underground = isAntiFreecamUnderground(player);
-+
-+            if (!underground) {
-+                if (state.underground) {
-+                    refreshTracker = true;
-+                }
-+
-+                state.underground = false;
-+                state.pendingRevealChunks.clear();
-+                state.queuedRevealChunks.clear();
-+
-+                if (state.surfaceTicks++ >= antiFreecamSurfaceRemaskDelayTicks) {
-+                    queueAllAntiFreecamRemasks(state);
-+                    state.centerChunkX = Integer.MIN_VALUE;
-+                    state.centerChunkZ = Integer.MIN_VALUE;
-+                    state.targetRadius = -1;
-+                }
++            if (hasAntiFreecamBypass(player)) {
++                refreshTracker = state.clear();
 +            } else {
-+                int chunkX = MathHelper.floor(player.locX) >> 4;
-+                int chunkZ = MathHelper.floor(player.locZ) >> 4;
-+                int targetRadius = getAntiFreecamTargetRadius(player);
++                boolean underground = isAntiFreecamUnderground(player);
 +
-+                state.surfaceTicks = 0;
++                if (!underground) {
++                    if (state.underground) {
++                        refreshTracker = true;
++                    }
 +
-+                if (!state.underground || state.centerChunkX != chunkX || state.centerChunkZ != chunkZ || state.targetRadius != targetRadius) {
-+                    refreshTracker = true;
-+                    state.underground = true;
-+                    state.centerChunkX = chunkX;
-+                    state.centerChunkZ = chunkZ;
-+                    state.targetRadius = targetRadius;
-+                    queueAntiFreecamReveals(state, chunkX, chunkZ, targetRadius);
-+                } else if (antiFreecamRepairIntervalTicks > 0 && player.ticksLived % antiFreecamRepairIntervalTicks == 0) {
-+                    queueAntiFreecamReveals(state, chunkX, chunkZ, targetRadius);
++                    state.underground = false;
++                    state.pendingRevealChunks.clear();
++                    state.queuedRevealChunks.clear();
++
++                    if (state.surfaceTicks++ >= antiFreecamSurfaceRemaskDelayTicks) {
++                        queueAllAntiFreecamRemasks(state);
++                        state.centerChunkX = Integer.MIN_VALUE;
++                        state.centerChunkZ = Integer.MIN_VALUE;
++                        state.targetRadius = -1;
++                    }
++                } else {
++                    int chunkX = MathHelper.floor(player.locX) >> 4;
++                    int chunkZ = MathHelper.floor(player.locZ) >> 4;
++                    int targetRadius = getAntiFreecamTargetRadius(player);
++
++                    state.surfaceTicks = 0;
++
++                    if (!state.underground || state.centerChunkX != chunkX || state.centerChunkZ != chunkZ || state.targetRadius != targetRadius) {
++                        refreshTracker = true;
++                        state.underground = true;
++                        state.centerChunkX = chunkX;
++                        state.centerChunkZ = chunkZ;
++                        state.targetRadius = targetRadius;
++                        queueAntiFreecamReveals(state, chunkX, chunkZ, targetRadius);
++                    } else if (antiFreecamRepairIntervalTicks > 0 && player.ticksLived % antiFreecamRepairIntervalTicks == 0) {
++                        queueAntiFreecamReveals(state, chunkX, chunkZ, targetRadius);
++                    }
++
++                    queueAntiFreecamRemasksOutside(player, state, chunkX, chunkZ, targetRadius);
 +                }
 +
-+                queueAntiFreecamRemasksOutside(player, state, chunkX, chunkZ, targetRadius);
-+            }
++                refreshTracker |= processAntiFreecamRemaskQueue(player, state);
++                refreshTracker |= processAntiFreecamRevealQueue(player, state);
 +
-+            refreshTracker |= processAntiFreecamRemaskQueue(player, state);
-+            refreshTracker |= processAntiFreecamRevealQueue(player, state);
-+
-+            if (state.entityTrackerRefreshNeeded) {
-+                state.entityTrackerRefreshNeeded = false;
-+                refreshTracker = true;
++                if (state.entityTrackerRefreshNeeded) {
++                    state.entityTrackerRefreshNeeded = false;
++                    refreshTracker = true;
++                }
 +            }
 +        }
 +
@@ -798,7 +811,7 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
          if (updateRadius >= 2) {
              BlockPosition temp = blockPosition.west();
              updateBlock(world, temp);
-@@ -1334,6 +1801,21 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+@@ -1334,6 +1801,39 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
          }
      }
  
@@ -815,9 +828,27 @@ index 523a49bb0970070dbc9126203886f996dd5e36c6..0efa04a16c1ebbbb36f041757d92177a
 +        private final Deque<Long> pendingRevealChunks = new ArrayDeque<Long>();
 +        private final Set<Long> queuedRemaskChunks = new HashSet<Long>();
 +        private final Deque<Long> pendingRemaskChunks = new ArrayDeque<Long>();
++
++        private boolean clear() {
++            boolean changed = underground || entityTrackerRefreshNeeded || surfaceTicks != 0 || centerChunkX != Integer.MIN_VALUE || centerChunkZ != Integer.MIN_VALUE || targetRadius != -1
++                    || !revealedChunks.isEmpty() || !queuedRevealChunks.isEmpty() || !pendingRevealChunks.isEmpty() || !queuedRemaskChunks.isEmpty() || !pendingRemaskChunks.isEmpty();
++
++            underground = false;
++            entityTrackerRefreshNeeded = false;
++            surfaceTicks = 0;
++            centerChunkX = Integer.MIN_VALUE;
++            centerChunkZ = Integer.MIN_VALUE;
++            targetRadius = -1;
++            revealedChunks.clear();
++            queuedRevealChunks.clear();
++            pendingRevealChunks.clear();
++            queuedRemaskChunks.clear();
++            pendingRemaskChunks.clear();
++            return changed;
++        }
 +    }
 +
-     private static final class RayTraceChunk {
+      private static final class RayTraceChunk {
  
          private final WeakReference<Chunk> chunk;
 diff --git a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfo.java b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfo.java
@@ -883,19 +914,29 @@ index 8c46bd8a89b19e4c72b7d704feb431385320e5bf..da65eaf738c896e7bc39d632e9e7d632
  
  public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo implements Runnable {
  
-@@ -13,7 +15,11 @@ public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo
+@@ -13,7 +15,21 @@ public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo
      private final ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray;
++    private final boolean antiFreecamBypass;
  
      public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray) {
 -        super(packetPlayOutMapChunk, chunk, chunkSectionSelector);
-+        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, null, chunkPacketBlockControllerAntiXray);
++        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, null, chunkPacketBlockControllerAntiXray, false);
 +    }
 +
 +    public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, @Nullable EntityPlayer player, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray) {
++        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, player, chunkPacketBlockControllerAntiXray, false);
++    }
++
++    public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, @Nullable EntityPlayer player, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray, boolean antiFreecamBypass) {
 +        super(packetPlayOutMapChunk, chunk, chunkSectionSelector, player);
          this.chunkPacketBlockControllerAntiXray = chunkPacketBlockControllerAntiXray;
++        this.antiFreecamBypass = antiFreecamBypass;
      }
  
++    public boolean hasAntiFreecamBypass() {
++        return antiFreecamBypass;
++    }
++
 diff --git a/src/main/java/net/minecraft/server/EntityTrackerEntry.java b/src/main/java/net/minecraft/server/EntityTrackerEntry.java
 index c9f6f7df36c56f7b3191c0d5b48df378766642cd..38a112ef6b1565fe93bde96be69ee0cea1f18326 100644
 --- a/src/main/java/net/minecraft/server/EntityTrackerEntry.java
