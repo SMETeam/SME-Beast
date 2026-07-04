@@ -5,10 +5,12 @@ Subject: [PATCH] another fix for via
 
 
 diff --git a/src/main/java/net/minecraft/server/WorldServer.java b/src/main/java/net/minecraft/server/WorldServer.java
-index 359814b145475b4c67a71c8c13924f70e9f3a1b6..359814b145475b4c67a71c8c13924f70e9f3a1b6 100644
+index 359814b145475b4c67a71c8c13924f70e9f3a1b6..63626d4d08f366427c8bb6a4a01c49dd5f8ad5ab 100644
 --- a/src/main/java/net/minecraft/server/WorldServer.java
 +++ b/src/main/java/net/minecraft/server/WorldServer.java
-@@ -1334,3 +1334,25 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+@@ -1257,9 +1257,31 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+     }
+ 
      public void broadcastEntityEffect(Entity entity, byte b0) {
 +        // Beast start - FUCK YOUUUUUUUUUUUUUUUU
 +        if (istheFUCKINGSHITDAMAGE(b0)) {
@@ -18,7 +20,7 @@ index 359814b145475b4c67a71c8c13924f70e9f3a1b6..359814b145475b4c67a71c8c13924f70
 +        // Beast end
          this.getTracker().sendPacketToEntity(entity, new PacketPlayOutEntityStatus(entity, b0));
      }
-+
+ 
 +    // Beast start - fuck ass shit
 +    private static boolean istheFUCKINGSHITDAMAGE(byte status) {
 +        switch (status) {
@@ -34,3 +36,7 @@ index 359814b145475b4c67a71c8c13924f70e9f3a1b6..359814b145475b4c67a71c8c13924f70
 +        }
 +    }
 +    // Beast end
++
+     public ChunkProviderServer getChunkProviderServer() {
+         return (ChunkProviderServer) super.getChunkProvider();
+     }
