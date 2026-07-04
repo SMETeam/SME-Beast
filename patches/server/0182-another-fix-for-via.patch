@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Sat, 4 Jul 2026 17:24:00 -0400
+Subject: [PATCH] another fix for via
+
+
+diff --git a/src/main/java/net/minecraft/server/WorldServer.java b/src/main/java/net/minecraft/server/WorldServer.java
+--- a/src/main/java/net/minecraft/server/WorldServer.java
++++ b/src/main/java/net/minecraft/server/WorldServer.java
+@@ -1332,8 +1332,30 @@ public class WorldServer extends World implements IAsyncTaskHandler {
+     }
+ 
+     public void broadcastEntityEffect(Entity entity, byte b0) {
++        // Beast start - FUCK YOUUUUUUUUUUUUUUUU
++        if (istheFUCKINGSHITDAMAGE(b0)) {
++            this.getTracker().sendPacketToEntity(entity, new PacketPlayOutAnimation(entity, 1));
++            return;
++        }
++        // Beast end
+         this.getTracker().sendPacketToEntity(entity, new PacketPlayOutEntityStatus(entity, b0));
+     }
++
++    // Beast start - fuck ass shit
++    private static boolean istheFUCKINGSHITDAMAGE(byte status) {
++        switch (status) {
++            case 2:
++            case 33:
++            case 36:
++            case 37:
++            case 44:
++            case 57:
++                return true;
++            default:
++                return false;
++        }
++    }
++    // Beast end
+ 
+     public Explosion createExplosion(Entity entity, double d0, double d1, double d2, float f, boolean flag, boolean flag1) {
+         // CraftBukkit start
