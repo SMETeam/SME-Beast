@@ -5,11 +5,10 @@ Subject: [PATCH] another fix for via
 
 
 diff --git a/src/main/java/net/minecraft/server/WorldServer.java b/src/main/java/net/minecraft/server/WorldServer.java
+index 359814b145475b4c67a71c8c13924f70e9f3a1b6..359814b145475b4c67a71c8c13924f70e9f3a1b6 100644
 --- a/src/main/java/net/minecraft/server/WorldServer.java
 +++ b/src/main/java/net/minecraft/server/WorldServer.java
-@@ -1332,8 +1332,30 @@ public class WorldServer extends World implements IAsyncTaskHandler {
-     }
- 
+@@ -1334,3 +1334,25 @@ public class WorldServer extends World implements IAsyncTaskHandler {
      public void broadcastEntityEffect(Entity entity, byte b0) {
 +        // Beast start - FUCK YOUUUUUUUUUUUUUUUU
 +        if (istheFUCKINGSHITDAMAGE(b0)) {
@@ -35,6 +34,3 @@ diff --git a/src/main/java/net/minecraft/server/WorldServer.java b/src/main/java
 +        }
 +    }
 +    // Beast end
- 
-     public Explosion createExplosion(Entity entity, double d0, double d1, double d2, float f, boolean flag, boolean flag1) {
-         // CraftBukkit start
