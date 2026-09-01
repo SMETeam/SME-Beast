@@ -1,0 +1,163 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Sun, 30 Aug 2026 16:33:57 -0400
+Subject: [PATCH] fix: prevent mule and entity item duplication
+
+
+diff --git a/src/main/java/net/minecraft/server/Entity.java b/src/main/java/net/minecraft/server/Entity.java
+index e067703eb34ec85c3419e9e40647a8270a461eb0..deb6be4912ce57bd8eb9d6c141d1ad95d345f3d8 100644
+--- a/src/main/java/net/minecraft/server/Entity.java
++++ b/src/main/java/net/minecraft/server/Entity.java
+@@ -1963,11 +1963,16 @@ public abstract class Entity implements ICommandListener, KeyedObject { // Paper
+         } else {
+             // CraftBukkit start - Capture drops for death event
+             if (this instanceof EntityLiving && !((EntityLiving) this).forceDrops) {
+-                ((EntityLiving) this).drops.add(org.bukkit.craftbukkit.inventory.CraftItemStack.asBukkitCopy(itemstack));
++                // Paper start - Fix item duplication by retaining the original stack until the event is processed
++                ((EntityLiving) this).drops.add(org.bukkit.craftbukkit.inventory.CraftItemStack.asCraftMirror(itemstack));
++                // Paper end
+                 return null;
+             }
+             // CraftBukkit end
+-            EntityItem entityitem = new EntityItem(this.world, this.locX, this.locY + (double) f, this.locZ, itemstack);
++            // Paper start - Never let the same stack exist in both the source and dropped entity
++            EntityItem entityitem = new EntityItem(this.world, this.locX, this.locY + (double) f, this.locZ, itemstack.cloneItemStack());
++            itemstack.setCount(0);
++            // Paper end
+ 
+             entityitem.q();
+             this.world.addEntity(entityitem);
+@@ -2539,6 +2544,14 @@ public abstract class Entity implements ICommandListener, KeyedObject { // Paper
+         if (!this.dead) { // Paper
+             WorldServer worldserver = ((CraftWorld) getBukkitEntity().getLocation().getWorld()).getHandle();
+             WorldServer worldserver1 = ((CraftWorld) exit.getWorld()).getHandle();
++
++            // Paper start - Prevent invalid entities from being cloned across worlds
++            if (worldserver != worldserver1 && (!this.isAlive() || !this.valid)) {
++                Entity.a.warn("Illegal Entity Teleport " + this + " to " + exit, new Throwable());
++                return null;
++            }
++            // Paper end
++
+             int i = worldserver1.dimension;
+             // CraftBukkit end
+ 
+@@ -2592,6 +2605,12 @@ public abstract class Entity implements ICommandListener, KeyedObject { // Paper
+             Entity entity = EntityTypes.a(this.getClass(), (World) worldserver1);
+ 
+             if (entity != null) {
++                // Paper start - Drop the lead before copying entity state to the new world
++                if (this instanceof EntityInsentient) {
++                    ((EntityInsentient) this).unleash(true, true);
++                }
++                // Paper end
++
+                 entity.a(this);
+                 /* CraftBukkit start - We need to do this...
+                 if (j == 1 && i == 1) {
+@@ -2613,9 +2632,6 @@ public abstract class Entity implements ICommandListener, KeyedObject { // Paper
+                 this.getBukkitEntity().setHandle(entity);
+                 entity.bukkitEntity = this.getBukkitEntity();
+ 
+-                if (this instanceof EntityInsentient) {
+-                    ((EntityInsentient)this).unleash(true, false); // Unleash to prevent duping of leads.
+-                }
+                 // CraftBukkit end
+             }
+ 
+diff --git a/src/main/java/net/minecraft/server/EntityArmorStand.java b/src/main/java/net/minecraft/server/EntityArmorStand.java
+index 8ca07428dbecd8f8c006bdf0cae8eff8e5e7f477..b7aee905c1fe1ebe4fb1228f06f6dc99fec49517 100644
+--- a/src/main/java/net/minecraft/server/EntityArmorStand.java
++++ b/src/main/java/net/minecraft/server/EntityArmorStand.java
+@@ -525,7 +525,7 @@ public class EntityArmorStand extends EntityLiving {
+         for (i = 0; i < this.by.size(); ++i) {
+             itemstack = (ItemStack) this.by.get(i);
+             if (!itemstack.isEmpty()) {
+-                drops.add(org.bukkit.craftbukkit.inventory.CraftItemStack.asBukkitCopy(itemstack)); // CraftBukkit - add to drops
++                drops.add(org.bukkit.craftbukkit.inventory.CraftItemStack.asCraftMirror(itemstack)); // Paper - destroy the source stack after it is dropped
+                 this.by.set(i, ItemStack.a);
+             }
+         }
+@@ -533,7 +533,7 @@ public class EntityArmorStand extends EntityLiving {
+         for (i = 0; i < this.bz.size(); ++i) {
+             itemstack = (ItemStack) this.bz.get(i);
+             if (!itemstack.isEmpty()) {
+-                drops.add(org.bukkit.craftbukkit.inventory.CraftItemStack.asBukkitCopy(itemstack)); // CraftBukkit - add to drops
++                drops.add(org.bukkit.craftbukkit.inventory.CraftItemStack.asCraftMirror(itemstack)); // Paper - destroy the source stack after it is dropped
+                 this.bz.set(i, ItemStack.a);
+             }
+         }
+diff --git a/src/main/java/net/minecraft/server/EntityLiving.java b/src/main/java/net/minecraft/server/EntityLiving.java
+index c80ada2ad5d858e63755206b63c9b19a22ad4050..798472d3b71d9703270a631b3456d54f719fb6a1 100644
+--- a/src/main/java/net/minecraft/server/EntityLiving.java
++++ b/src/main/java/net/minecraft/server/EntityLiving.java
+@@ -1152,6 +1152,14 @@ public abstract class EntityLiving extends Entity {
+             if (true) { // Beast - Remove isClientSide check
+                 int i = 0;
+ 
++                // Paper start - Run kill triggers before mirrored drop stacks are consumed
++                Runnable lootCheck = () -> {
++                    if (this.getKillCount() >= 0 && entityliving != null) {
++                        entityliving.runKillTrigger(this, this.getKillCount(), damagesource);
++                    }
++                };
++                // Paper end
++
+                 if (entity instanceof EntityHuman) {
+                     i = EnchantmentManager.g((EntityLiving) entity);
+                 }
+@@ -1161,10 +1169,10 @@ public abstract class EntityLiving extends Entity {
+ 
+                     this.a(flag, i, damagesource);
+                     // CraftBukkit start - Call death event
+-                    deathEvent = CraftEventFactory.callEntityDeathEvent(this, this.drops); // Paper - cancellable death event
++                    deathEvent = CraftEventFactory.callEntityDeathEvent(this, this.drops, lootCheck); // Paper - cancellable death event
+                     this.drops = new ArrayList<org.bukkit.inventory.ItemStack>();
+                 } else {
+-                    deathEvent = CraftEventFactory.callEntityDeathEvent(this); // Paper - cancellable death event
++                    deathEvent = CraftEventFactory.callEntityDeathEvent(this, new ArrayList<org.bukkit.inventory.ItemStack>(0), lootCheck); // Paper - cancellable death event
+                     // CraftBukkit end
+                 }
+             }
+@@ -1172,10 +1180,6 @@ public abstract class EntityLiving extends Entity {
+             // Paper start - cancellable death event
+             if (/*deathEvent == null*/false || !deathEvent.isCancelled()) { // Beast - Optimize
+                 // triggers and stats got moved down
+-                if (this.getKillCount() >= 0 && entityliving != null) {
+-                    entityliving.runKillTrigger(this, this.getKillCount(), damagesource);
+-                }
+-
+                 if (entity != null) {
+                     entity.onKill(this);
+                 }
+diff --git a/src/main/java/org/bukkit/craftbukkit/event/CraftEventFactory.java b/src/main/java/org/bukkit/craftbukkit/event/CraftEventFactory.java
+index 5903a7b5e195ad68ac32b05400449cc0fd305d7d..3e1c930a53db32ee256e39c7333987dd2a5ed1da 100644
+--- a/src/main/java/org/bukkit/craftbukkit/event/CraftEventFactory.java
++++ b/src/main/java/org/bukkit/craftbukkit/event/CraftEventFactory.java
+@@ -413,6 +413,10 @@ public class CraftEventFactory {
+     }
+ 
+     public static EntityDeathEvent callEntityDeathEvent(EntityLiving victim, List<org.bukkit.inventory.ItemStack> drops) {
++        return callEntityDeathEvent(victim, drops, com.google.common.util.concurrent.Runnables.doNothing());
++    }
++
++    public static EntityDeathEvent callEntityDeathEvent(EntityLiving victim, List<org.bukkit.inventory.ItemStack> drops, Runnable lootCheck) {
+         CraftLivingEntity entity = (CraftLivingEntity) victim.getBukkitEntity();
+         EntityDeathEvent event = new EntityDeathEvent(entity, drops, victim.getExpReward());
+         populateFields(victim, event); // Paper - make cancellable
+@@ -427,10 +431,15 @@ public class CraftEventFactory {
+         // Paper end
+         victim.expToDrop = event.getDroppedExp();
+ 
++        lootCheck.run(); // Paper - Run before destroying mirrored equipment and inventory stacks
++
+         for (org.bukkit.inventory.ItemStack stack : event.getDrops()) {
+             if (stack == null || stack.getType() == Material.AIR || stack.getAmount() == 0) continue;
+ 
+             world.dropItemNaturally(entity.getLocation(), stack);
++            if (stack instanceof CraftItemStack) {
++                stack.setAmount(0); // Paper - The world received a copy; destroy the original backing NMS stack
++            }
+         }
+ 
+         return event;

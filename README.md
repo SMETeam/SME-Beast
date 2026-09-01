@@ -44,6 +44,15 @@ It checks if a hidden ore has a real line of sight to the player, meaning if the
 ### Anti-FreeCam
 It works by sending different chunk data per player; So anything below the `mask-below-y` gets hidden. So players on the surface get fake underground chunks, while players who are underground get only the area around them revealed, and old areas get hidden again to prevent Free Camera mods
 
+Revealed chunks remain visible for three seconds after leaving the underground reveal radius by default. Configure the grace period in ticks (`20` ticks is approximately one second):
+
+```yaml
+world-settings:
+  default:
+    anti-freecam:
+      radius-remask-delay-ticks: 60
+```
+
 ![freecam](media/anti-freecam_showcase.png)
 
 ### Permissions

@@ -1,0 +1,138 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Sun, 16 Aug 2026 15:44:34 -0400
+Subject: [PATCH] feat: delay anti-freecam radius remasking
+
+
+diff --git a/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java b/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
+index 2ae3c8b129279cf877b0d418bb60960bc77d881c..67fcb581ce10ca4599286da084fc17bb867554d4 100644
+--- a/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
++++ b/src/main/java/com/destroystokyo/paper/PaperWorldConfig.java
+@@ -520,6 +520,7 @@ public class PaperWorldConfig {
+     public int antiFreecamRemaskChunksPerTick;
+     public int antiFreecamVerticalGrace;
+     public int antiFreecamSurfaceRemaskDelayTicks;
++    public int antiFreecamRadiusRemaskDelayTicks;
+     public int antiFreecamRepairIntervalTicks;
+     public int antiFreecamElytraRadiusMultiplier;
+     public boolean antiFreecamHideEntities;
+@@ -552,10 +553,11 @@ public class PaperWorldConfig {
+         antiFreecamRemaskChunksPerTick = Math.max(getAntiFreecamInt("remask-chunks-per-tick", Math.max(1, antiFreecamChunksPerTick / 2)), 1);
+         antiFreecamVerticalGrace = MathHelper.clamp(getAntiFreecamInt("vertical-grace", 3), 0, 32);
+         antiFreecamSurfaceRemaskDelayTicks = Math.max(getAntiFreecamInt("surface-remask-delay-ticks", 10), 0);
++        antiFreecamRadiusRemaskDelayTicks = Math.max(getAntiFreecamInt("radius-remask-delay-ticks", 60), 0);
+         antiFreecamRepairIntervalTicks = Math.max(getAntiFreecamInt("repair-interval-ticks", 20), 0);
+         antiFreecamElytraRadiusMultiplier = Math.max(getAntiFreecamInt("elytra-radius-multiplier", 2), 1);
+         antiFreecamHideEntities = getAntiFreecamBoolean("hide-entities", true);
+-        log("Anti-Freecam: " + (antiFreecam ? "enabled" : "disabled") + " / Mask Below Y: " + antiFreecamMaskBelowY + " / Initial Radius: " + antiFreecamInitialRadius + " / Max Radius: " + antiFreecamMaxRadius + " / Chunks Per Tick: " + antiFreecamChunksPerTick + " / Remask Chunks Per Tick: " + antiFreecamRemaskChunksPerTick + " / Vertical Grace: " + antiFreecamVerticalGrace + " / Surface Remask Delay: " + antiFreecamSurfaceRemaskDelayTicks + " / Repair Interval: " + antiFreecamRepairIntervalTicks + " / Hide Entities: " + antiFreecamHideEntities);
++        log("Anti-Freecam: " + (antiFreecam ? "enabled" : "disabled") + " / Mask Below Y: " + antiFreecamMaskBelowY + " / Initial Radius: " + antiFreecamInitialRadius + " / Max Radius: " + antiFreecamMaxRadius + " / Chunks Per Tick: " + antiFreecamChunksPerTick + " / Remask Chunks Per Tick: " + antiFreecamRemaskChunksPerTick + " / Vertical Grace: " + antiFreecamVerticalGrace + " / Surface Remask Delay: " + antiFreecamSurfaceRemaskDelayTicks + " / Radius Remask Delay: " + antiFreecamRadiusRemaskDelayTicks + " / Repair Interval: " + antiFreecamRepairIntervalTicks + " / Hide Entities: " + antiFreecamHideEntities);
+     }
+ 
+     public int expMergeMaxValue;
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+index 7fda8f20f3de16667b27ea12cbf0657a6d672f80..fe1dd54804b6ecac49f6fa8567bb0098fd759e5c 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+@@ -77,6 +77,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     private final int antiFreecamRemaskChunksPerTick;
+     private final int antiFreecamVerticalGrace;
+     private final int antiFreecamSurfaceRemaskDelayTicks;
++    private final int antiFreecamRadiusRemaskDelayTicks;
+     private final int antiFreecamRepairIntervalTicks;
+     private final int antiFreecamElytraRadiusMultiplier;
+     private final boolean antiFreecamHideEntities;
+@@ -124,6 +125,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         antiFreecamRemaskChunksPerTick = paperWorldConfig.antiFreecamRemaskChunksPerTick;
+         antiFreecamVerticalGrace = paperWorldConfig.antiFreecamVerticalGrace;
+         antiFreecamSurfaceRemaskDelayTicks = paperWorldConfig.antiFreecamSurfaceRemaskDelayTicks;
++        antiFreecamRadiusRemaskDelayTicks = paperWorldConfig.antiFreecamRadiusRemaskDelayTicks;
+         antiFreecamRepairIntervalTicks = paperWorldConfig.antiFreecamRepairIntervalTicks;
+         antiFreecamElytraRadiusMultiplier = paperWorldConfig.antiFreecamElytraRadiusMultiplier;
+         antiFreecamHideEntities = paperWorldConfig.antiFreecamHideEntities;
+@@ -1013,6 +1015,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+                     state.underground = false;
+                     state.pendingRevealChunks.clear();
+                     state.queuedRevealChunks.clear();
++                    state.radiusExitTicks.clear();
+ 
+                     if (state.surfaceTicks++ >= antiFreecamSurfaceRemaskDelayTicks) {
+                         queueAllAntiFreecamRemasks(state);
+@@ -1082,6 +1085,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+ 
+     private void queueAntiFreecamReveal(AntiFreecamPlayerState state, long chunkKey) {
+         state.queuedRemaskChunks.remove(chunkKey);
++        state.radiusExitTicks.remove(chunkKey);
+ 
+         if (!state.queuedRevealChunks.contains(chunkKey) && state.queuedRevealChunks.add(chunkKey)) {
+             state.pendingRevealChunks.addLast(chunkKey);
+@@ -1089,6 +1093,8 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     }
+ 
+     private void queueAllAntiFreecamRemasks(AntiFreecamPlayerState state) {
++        state.radiusExitTicks.clear();
++
+         for (Long chunkKey : new ArrayList<Long>(state.revealedChunks)) {
+             queueAntiFreecamRemask(state, chunkKey.longValue());
+         }
+@@ -1100,7 +1106,27 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             int chunkX = getChunkX(chunkKey);
+             int chunkZ = getChunkZ(chunkKey);
+ 
+-            if (!isWithinAntiFreecamRadius(centerChunkX, centerChunkZ, chunkX, chunkZ, radius) || !isChunkSentToPlayer(player, chunkX, chunkZ)) {
++            if (!isChunkSentToPlayer(player, chunkX, chunkZ)) {
++                state.radiusExitTicks.remove(chunkKey);
++                queueAntiFreecamRemask(state, chunkKey);
++                continue;
++            }
++
++            if (isWithinAntiFreecamRadius(centerChunkX, centerChunkZ, chunkX, chunkZ, radius)) {
++                state.radiusExitTicks.remove(chunkKey);
++                continue;
++            }
++
++            if (antiFreecamRadiusRemaskDelayTicks <= 0) {
++                queueAntiFreecamRemask(state, chunkKey);
++                continue;
++            }
++
++            Integer exitTick = state.radiusExitTicks.get(chunkKey);
++
++            if (exitTick == null) {
++                state.radiusExitTicks.put(chunkKey, player.ticksLived);
++            } else if (player.ticksLived - exitTick.intValue() >= antiFreecamRadiusRemaskDelayTicks) {
+                 queueAntiFreecamRemask(state, chunkKey);
+             }
+         }
+@@ -1112,6 +1138,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         }
+ 
+         state.queuedRevealChunks.remove(chunkKey);
++        state.radiusExitTicks.remove(chunkKey);
+ 
+         if (!state.queuedRemaskChunks.contains(chunkKey) && state.queuedRemaskChunks.add(chunkKey)) {
+             state.pendingRemaskChunks.addLast(chunkKey);
+@@ -1823,6 +1850,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         private int centerChunkZ = Integer.MIN_VALUE;
+         private int targetRadius = -1;
+         private final Set<Long> revealedChunks = new HashSet<Long>();
++        private final Map<Long, Integer> radiusExitTicks = new HashMap<Long, Integer>();
+         private final Set<Long> queuedRevealChunks = new HashSet<Long>();
+         private final Deque<Long> pendingRevealChunks = new ArrayDeque<Long>();
+         private final Set<Long> queuedRemaskChunks = new HashSet<Long>();
+@@ -1830,7 +1858,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+ 
+         private boolean clear() {
+             boolean changed = underground || entityTrackerRefreshNeeded || surfaceTicks != 0 || centerChunkX != Integer.MIN_VALUE || centerChunkZ != Integer.MIN_VALUE || targetRadius != -1
+-                    || !revealedChunks.isEmpty() || !queuedRevealChunks.isEmpty() || !pendingRevealChunks.isEmpty() || !queuedRemaskChunks.isEmpty() || !pendingRemaskChunks.isEmpty();
++                    || !revealedChunks.isEmpty() || !radiusExitTicks.isEmpty() || !queuedRevealChunks.isEmpty() || !pendingRevealChunks.isEmpty() || !queuedRemaskChunks.isEmpty() || !pendingRemaskChunks.isEmpty();
+ 
+             underground = false;
+             entityTrackerRefreshNeeded = false;
+@@ -1839,6 +1867,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             centerChunkZ = Integer.MIN_VALUE;
+             targetRadius = -1;
+             revealedChunks.clear();
++            radiusExitTicks.clear();
+             queuedRevealChunks.clear();
+             pendingRevealChunks.clear();
+             queuedRemaskChunks.clear();
