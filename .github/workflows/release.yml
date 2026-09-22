@@ -26,7 +26,7 @@ jobs:
         run: |
           git submodule update --init --recursive
           chmod +x ./beast
-          ./reaper jar
+          ./beast jar
 
       - name: Extract release notes
         id: extract_release_notes

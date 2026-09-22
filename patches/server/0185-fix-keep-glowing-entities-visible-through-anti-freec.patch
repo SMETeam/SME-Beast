@@ -1,0 +1,119 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Wed, 2 Sep 2026 10:49:06 -0400
+Subject: [PATCH] fix: keep glowing entities visible through anti-freecam
+
+
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+index fe1dd54804b6ecac49f6fa8567bb0098fd759e5c..9ce1fc6ab89282d988bdb5517e32d25f8e3f96ed 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+@@ -27,9 +27,11 @@ import net.minecraft.server.DataPalette;
+ import net.minecraft.server.DataPaletteBlock;
+ import net.minecraft.server.DataPaletteGlobal;
+ import net.minecraft.server.Entity;
++import net.minecraft.server.EntityLiving;
+ import net.minecraft.server.EntityPlayer;
+ import net.minecraft.server.IBlockData;
+ import net.minecraft.server.MathHelper;
++import net.minecraft.server.MobEffects;
+ import net.minecraft.server.Packet;
+ import net.minecraft.server.PacketPlayOutBlockChange;
+ import net.minecraft.server.PacketPlayOutMapChunk;
+@@ -398,6 +400,12 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             return true;
+         }
+ 
++        // Beast start - Keep glowing entities visible through anti-freecam
++        if (entity instanceof EntityLiving && ((EntityLiving) entity).hasEffect(MobEffects.GLOWING)) {
++            return true;
++        }
++        // Beast end
++
+         if (entity.locY >= (double) antiFreecamMaskBelowY) {
+             return true;
+         }
+diff --git a/src/main/java/net/minecraft/server/EntityLiving.java b/src/main/java/net/minecraft/server/EntityLiving.java
+index 798472d3b71d9703270a631b3456d54f719fb6a1..68c0866348970d0ea3af968736e527f9b0616c10 100644
+--- a/src/main/java/net/minecraft/server/EntityLiving.java
++++ b/src/main/java/net/minecraft/server/EntityLiving.java
+@@ -578,6 +578,7 @@ public abstract class EntityLiving extends Entity {
+                     if (true) { // Beast - Remove isClientSide check
+                         iterator.remove();
+                         this.b(mobeffect);
++                        this.refreshAntiFreecamTracking(mobeffect); // Beast - Refresh visibility when glowing expires
+                     }
+                 } else if (mobeffect.getDuration() % 600 == 0) {
+                     this.a(mobeffect, false);
+@@ -672,6 +673,7 @@ public abstract class EntityLiving extends Entity {
+ 
+     public void removeAllEffects() {
+         if (true) { // Beast - Remove isClientSide check
++            boolean hadGlowing = this.hasEffect(MobEffects.GLOWING); // Beast - Refresh anti-freecam visibility after clearing effects
+             Iterator iterator = this.effects.values().iterator();
+ 
+             while (iterator.hasNext()) {
+@@ -679,6 +681,9 @@ public abstract class EntityLiving extends Entity {
+                 iterator.remove();
+             }
+ 
++            if (hadGlowing) {
++                this.refreshAntiFreecamTracking();
++            }
+         }
+     }
+ 
+@@ -713,6 +718,7 @@ public abstract class EntityLiving extends Entity {
+             if (mobeffect1 == null) {
+                 this.effects.put(mobeffect.getMobEffect(), mobeffect);
+                 this.a(mobeffect);
++                this.refreshAntiFreecamTracking(mobeffect); // Beast - Reveal newly glowing entities
+             } else {
+                 mobeffect1.a(mobeffect);
+                 this.a(mobeffect1, true);
+@@ -753,9 +759,24 @@ public abstract class EntityLiving extends Entity {
+ 
+         if (mobeffect != null) {
+             this.b(mobeffect);
++            this.refreshAntiFreecamTracking(mobeffect); // Beast - Reapply anti-freecam hiding after glowing is removed
++        }
++
++    }
++
++    // Beast start - Refresh anti-freecam visibility through the normal tracker spawn/destroy path
++    private void refreshAntiFreecamTracking(MobEffect mobeffect) {
++        if (mobeffect.getMobEffect() == MobEffects.GLOWING) {
++            this.refreshAntiFreecamTracking();
+         }
++    }
+ 
++    private void refreshAntiFreecamTracking() {
++        if (this.world instanceof WorldServer) {
++            ((WorldServer) this.world).getTracker().refreshEntityTracking(this);
++        }
+     }
++    // Beast end
+ 
+     protected void a(MobEffect mobeffect) {
+         this.updateEffects = true;
+diff --git a/src/main/java/net/minecraft/server/EntityTracker.java b/src/main/java/net/minecraft/server/EntityTracker.java
+index 9fe51003dc39fa69c5b8a01204fb5909b6493f74..23e1d11b35f6d3e792cc90e339c5209107a20aab 100644
+--- a/src/main/java/net/minecraft/server/EntityTracker.java
++++ b/src/main/java/net/minecraft/server/EntityTracker.java
+@@ -219,6 +219,16 @@ public class EntityTracker {
+ 
+     }
+ 
++    // Beast start - Refresh anti-freecam visibility after glowing changes
++    public void refreshEntityTracking(Entity entity) {
++        EntityTrackerEntry entitytrackerentry = (EntityTrackerEntry) this.trackedEntities.get(entity.getId());
++
++        if (entitytrackerentry != null) {
++            entitytrackerentry.scanPlayers(this.world.players);
++        }
++    }
++    // Beast end
++
+     public void a(Entity entity, Packet<?> packet) {
+         EntityTrackerEntry entitytrackerentry = (EntityTrackerEntry) this.trackedEntities.get(entity.getId());
+ 
