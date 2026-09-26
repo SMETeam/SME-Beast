@@ -28,7 +28,8 @@ A Paper 1.12.2 fork of a OTHER Paper fork aims to provide extreme performance, b
 - **Dynamic View Distance (with permissions)**
 - **Raytracing Anti-Xray**
 - Ported New item names
-- **Anti-FreeCam (W.I.P)**
+- Ported over dupe fixes (TNT, Carpet, etc) and changable with `unsupported-settings`
+- **Anti-FreeCam**
 
 ## Showcase
 
@@ -60,6 +61,7 @@ world-settings:
 reaper.dynvd_<distance> | The value of what you want the player to have rather than the server default
 reaper.unlimitvd | As much render distance as the player requests
 smemc.antifreecam.bypass | Bypasses the anti-freecam, useful for bedrock players as loading all the data lags their game
+smemc.antixray.bypass | Bypasses the anti-xray
 ```
 
 ### Java >= 8 is required, Java >= 21 is recommended.
