@@ -1,0 +1,158 @@
+From c3097a63ecaad611143bdec3f7ac7119f8cf04cd Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Sat, 26 Sep 2026 11:15:47 -0400
+Subject: [PATCH] feat: add anti-xray bypass permission
+
+---
+ .../ChunkPacketBlockControllerAntiXray.java   | 32 ++++++++++++++++---
+ .../PacketPlayOutMapChunkInfoAntiXray.java    | 12 +++++--
+ 2 files changed, 36 insertions(+), 8 deletions(-)
+
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+index 9ce1fc6a..498f79ec 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/ChunkPacketBlockControllerAntiXray.java
+@@ -56,6 +56,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+             {0.5D, 0.5D, 0.125D},
+             {0.5D, 0.5D, 0.875D}
+     };
++    private static final String ANTI_XRAY_BYPASS_PERMISSION = "smemc.antixray.bypass";
+     private static final String ANTI_FREECAM_BYPASS_PERMISSION = "smemc.antifreecam.bypass";
+     private final ExecutorService executorService;
+     private final boolean antiXrayEnabled;
+@@ -384,14 +385,14 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     @Override
+     public PacketPlayOutMapChunkInfoAntiXray getPacketPlayOutMapChunkInfo(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, EntityPlayer player) {
+         //Return a new instance to collect data and objects in the right state while creating the chunk packet for thread safe access later
+-        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = new PacketPlayOutMapChunkInfoAntiXray(packetPlayOutMapChunk, chunk, chunkSectionSelector, player, this, hasAntiFreecamBypass(player));
++        PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = new PacketPlayOutMapChunkInfoAntiXray(packetPlayOutMapChunk, chunk, chunkSectionSelector, player, this, hasAntiXrayBypass(player), hasAntiFreecamBypass(player));
+         packetPlayOutMapChunkInfoAntiXray.setNearbyChunks(chunk.world.getChunkIfLoaded(chunk.locX - 1, chunk.locZ), chunk.world.getChunkIfLoaded(chunk.locX + 1, chunk.locZ), chunk.world.getChunkIfLoaded(chunk.locX, chunk.locZ - 1), chunk.world.getChunkIfLoaded(chunk.locX, chunk.locZ + 1));
+         return packetPlayOutMapChunkInfoAntiXray;
+     }
+ 
+     @Override
+     public boolean isChunkPacketPlayerSpecific() {
+-        return antiFreecamEnabled;
++        return antiXrayEnabled || antiFreecamEnabled;
+     }
+ 
+     @Override
+@@ -431,6 +432,11 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         }
+ 
+         PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = (PacketPlayOutMapChunkInfoAntiXray) packetPlayOutMapChunkInfo;
++
++        if (packetPlayOutMapChunkInfoAntiXray.hasAntiXrayBypass()) {
++            return;
++        }
++
+         List<BlockPosition> rayTraceBlocks = collectRayTraceBlocks(packetPlayOutMapChunkInfoAntiXray);
+         packetPlayOutMapChunkInfoAntiXray.setRayTraceBlocks(rayTraceBlocks);
+         updateRayTraceBlocks(packetPlayOutMapChunkInfoAntiXray.getChunk(), packetPlayOutMapChunkInfoAntiXray.getChunkSectionSelector(), rayTraceBlocks);
+@@ -451,6 +457,11 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         }
+ 
+         PacketPlayOutMapChunkInfoAntiXray packetPlayOutMapChunkInfoAntiXray = (PacketPlayOutMapChunkInfoAntiXray) packetPlayOutMapChunkInfo;
++
++        if (packetPlayOutMapChunkInfoAntiXray.hasAntiXrayBypass()) {
++            return false;
++        }
++
+         List<BlockPosition> rayTraceBlocks = packetPlayOutMapChunkInfoAntiXray.getRayTraceBlocks();
+ 
+         if (rayTraceBlocks == null || !rayTraceBlocks.contains(blockPosition)) {
+@@ -487,7 +498,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         dataBitsReader.setDataBits(packetPlayOutMapChunkInfoAntiXray.getData());
+         dataBitsWriter.setDataBits(packetPlayOutMapChunkInfoAntiXray.getData());
+ 
+-        if (antiXrayEnabled) {
++        if (antiXrayEnabled && !packetPlayOutMapChunkInfoAntiXray.hasAntiXrayBypass()) {
+         int counter = 0;
+ 
+         for (int chunkSectionIndex = 0; chunkSectionIndex <= maxChunkSectionIndex; chunkSectionIndex++) {
+@@ -694,6 +705,10 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+         return player != null && player.getBukkitEntity().hasPermission(ANTI_FREECAM_BYPASS_PERMISSION);
+     }
+ 
++    private boolean hasAntiXrayBypass(EntityPlayer player) {
++        return player != null && player.getBukkitEntity().hasPermission(ANTI_XRAY_BYPASS_PERMISSION);
++    }
++
+     private boolean isWithinAntiFreecamRadius(EntityPlayer player, int chunkX, int chunkZ, int radius) {
+         int playerChunkX = MathHelper.floor(player.locX) >> 4;
+         int playerChunkZ = MathHelper.floor(player.locZ) >> 4;
+@@ -946,7 +961,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     }
+ 
+     private boolean shouldHideRayTraceBlock(EntityPlayer player, World world, BlockPosition blockPosition) {
+-        if (!rayTraceExposedBlocks || player == null || world == null || player.world != world || !isTrackedRayTraceBlock(world, blockPosition)) {
++        if (!rayTraceExposedBlocks || player == null || hasAntiXrayBypass(player) || world == null || player.world != world || !isTrackedRayTraceBlock(world, blockPosition)) {
+             return false;
+         }
+ 
+@@ -977,7 +992,7 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+     }
+ 
+     public void appendRayTraceBlockUpdates(EntityPlayer player, Chunk chunk, List<BlockPosition> rayTraceBlocks, List<Packet> extraPackets) {
+-        if (!rayTraceExposedBlocks || player.world != chunk.world) {
++        if (!rayTraceExposedBlocks || hasAntiXrayBypass(player) || player.world != chunk.world) {
+             return;
+         }
+ 
+@@ -1276,6 +1291,13 @@ public class ChunkPacketBlockControllerAntiXray extends ChunkPacketBlockControll
+ 
+         Set<BlockPosition> previousVisibleBlocks = getVisibleRayTraceBlocks(player);
+         Map<BlockPosition, Integer> invisibleBlockMisses = getInvisibleRayTraceBlockMisses(player);
++
++        if (hasAntiXrayBypass(player)) {
++            previousVisibleBlocks.clear();
++            invisibleBlockMisses.clear();
++            return;
++        }
++
+         Set<BlockPosition> currentVisibleBlocks = new HashSet<>();
+         int playerChunkX = (int) Math.floor(player.locX) >> 4;
+         int playerChunkZ = (int) Math.floor(player.locZ) >> 4;
+diff --git a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
+index 32e0ef6a..3009127b 100644
+--- a/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
++++ b/src/main/java/com/destroystokyo/paper/antixray/PacketPlayOutMapChunkInfoAntiXray.java
+@@ -13,19 +13,21 @@ public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo
+     private Chunk[] nearbyChunks;
+     private List<BlockPosition> rayTraceBlocks;
+     private final ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray;
++    private final boolean antiXrayBypass;
+     private final boolean antiFreecamBypass;
+ 
+     public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray) {
+-        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, null, chunkPacketBlockControllerAntiXray, false);
++        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, null, chunkPacketBlockControllerAntiXray, false, false);
+     }
+ 
+     public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, @Nullable EntityPlayer player, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray) {
+-        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, player, chunkPacketBlockControllerAntiXray, false);
++        this(packetPlayOutMapChunk, chunk, chunkSectionSelector, player, chunkPacketBlockControllerAntiXray, false, false);
+     }
+ 
+-    public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, @Nullable EntityPlayer player, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray, boolean antiFreecamBypass) {
++    public PacketPlayOutMapChunkInfoAntiXray(PacketPlayOutMapChunk packetPlayOutMapChunk, Chunk chunk, int chunkSectionSelector, @Nullable EntityPlayer player, ChunkPacketBlockControllerAntiXray chunkPacketBlockControllerAntiXray, boolean antiXrayBypass, boolean antiFreecamBypass) {
+         super(packetPlayOutMapChunk, chunk, chunkSectionSelector, player);
+         this.chunkPacketBlockControllerAntiXray = chunkPacketBlockControllerAntiXray;
++        this.antiXrayBypass = antiXrayBypass;
+         this.antiFreecamBypass = antiFreecamBypass;
+     }
+ 
+@@ -49,6 +51,10 @@ public class PacketPlayOutMapChunkInfoAntiXray extends PacketPlayOutMapChunkInfo
+         return antiFreecamBypass;
+     }
+ 
++    public boolean hasAntiXrayBypass() {
++        return antiXrayBypass;
++    }
++
+     @Override
+     public void run() {
+         chunkPacketBlockControllerAntiXray.obfuscate(this);
+-- 
+2.55.0.windows.3
+
