@@ -1,0 +1,227 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Snubby <87741849+SnubbyOWO@users.noreply.github.com>
+Date: Thu, 24 Sep 2026 23:17:43 -0400
+Subject: [PATCH] fix: port Paper dupe and permanent block protections
+
+
+diff --git a/src/main/java/com/destroystokyo/paper/PaperConfig.java b/src/main/java/com/destroystokyo/paper/PaperConfig.java
+index 66b9e222eabf60fdd693829e33d2ceb4be12fd18..6d3086429b0070010a3d54e6cc4e69b95e3e400f 100644
+--- a/src/main/java/com/destroystokyo/paper/PaperConfig.java
++++ b/src/main/java/com/destroystokyo/paper/PaperConfig.java
+@@ -292,6 +292,28 @@ public class PaperConfig {
+         tabSpamLimit = getInt("settings.spam-limiter.tab-spam-limit", tabSpamLimit);
+     }
+ 
++    public static boolean allowPistonDuplication = false;
++    public static boolean skipTripwireHookPlacementValidation = false;
++    public static boolean allowPermanentBlockBreakExploits = false;
++    private static void unsupportedSettings() {
++        String path = "settings.unsupported-settings.";
++
++        // Paper used this old name before all piston desync dupes were covered by one setting.
++        allowPistonDuplication = getBoolean(path + "allow-piston-duplication",
++                config.getBoolean(path + "allow-tnt-duplication", false));
++        set(path + "allow-tnt-duplication", null);
++
++        skipTripwireHookPlacementValidation = getBoolean(path + "skip-tripwire-hook-placement-validation", false);
++
++        // Migrate Paper's original root-level spelling when present.
++        if (config.contains("allow-perm-block-break-exploits")) {
++            allowPermanentBlockBreakExploits = config.getBoolean("allow-perm-block-break-exploits", false);
++            set("allow-perm-block-break-exploits", null);
++        }
++        allowPermanentBlockBreakExploits = getBoolean(path + "allow-permanent-block-break-exploits",
++                allowPermanentBlockBreakExploits);
++    }
++
+ 
+     public static int maxBookPageSize = 2560;
+     public static double maxBookTotalSizeMultiplier = 0.98D;
+diff --git a/src/main/java/net/minecraft/server/Block.java b/src/main/java/net/minecraft/server/Block.java
+index 0bd38c0f1f336c582a7582119b81284800c5abd5..791407e47267d9e0c39dcad119ab74266e1d8ac3 100644
+--- a/src/main/java/net/minecraft/server/Block.java
++++ b/src/main/java/net/minecraft/server/Block.java
+@@ -38,6 +38,18 @@ public class Block {
+     private IBlockData blockData;
+     private String name;
+     // Paper start
++    public final boolean isDestroyable() {
++        return com.destroystokyo.paper.PaperConfig.allowPermanentBlockBreakExploits
++                || this != Blocks.BEDROCK
++                && this != Blocks.END_PORTAL_FRAME
++                && this != Blocks.END_PORTAL
++                && this != Blocks.END_GATEWAY
++                && this != Blocks.COMMAND_BLOCK
++                && this != Blocks.dc // repeating command block in 1.12 mappings
++                && this != Blocks.dd // chain command block in 1.12 mappings
++                && this != Blocks.BARRIER
++                && this != Blocks.STRUCTURE_BLOCK;
++    }
+     // Paper end
+ 
+     public static int getId(Block block) {
+diff --git a/src/main/java/net/minecraft/server/BlockPiston.java b/src/main/java/net/minecraft/server/BlockPiston.java
+index e06741a13a304f25a66e6da4e3569ab8977e0a18..21e8789c94866e76f1f79aade6cbefa6e131c8fd 100644
+--- a/src/main/java/net/minecraft/server/BlockPiston.java
++++ b/src/main/java/net/minecraft/server/BlockPiston.java
+@@ -170,6 +170,14 @@ public class BlockPiston extends BlockDirectional {
+     public boolean a(IBlockData iblockdata, World world, BlockPosition blockposition, int i, int j) {
+         EnumDirection enumdirection = (EnumDirection) iblockdata.get(BlockPiston.FACING);
+ 
++        // Paper - A queued retract event may run after the piston was replaced. Without
++        // validating its original direction, the stale event can delete a permanent block.
++        EnumDirection queuedDirection = EnumDirection.fromType1(j & 7);
++        if (!com.destroystokyo.paper.PaperConfig.allowPermanentBlockBreakExploits
++                && enumdirection != queuedDirection) {
++            return false;
++        }
++
+         if (true) { // Beast - Remove isClientSide check
+             boolean flag = this.a(world, blockposition, enumdirection);
+ 
+@@ -222,7 +230,17 @@ public class BlockPiston extends BlockDirectional {
+                     this.a(world, blockposition, enumdirection, false);
+                 }
+             } else {
+-                world.setAir(blockposition.shift(enumdirection));
++                // Paper - A headless piston must not treat an arbitrary block (including
++                // bedrock or an end portal frame) as its head and remove it on retraction.
++                BlockPosition headPosition = blockposition.shift(enumdirection);
++                IBlockData expectedHead = Blocks.PISTON_HEAD.getBlockData().set(BlockPistonExtension.FACING, enumdirection);
++                if (com.destroystokyo.paper.PaperConfig.allowPermanentBlockBreakExploits
++                        || world.getType(headPosition) == expectedHead) {
++                    world.setAir(headPosition);
++                } else {
++                    IBlockData actualHead = world.getType(headPosition);
++                    world.notify(headPosition, actualHead, actualHead, 3);
++                }
+             }
+ 
+             world.a((EntityHuman) null, blockposition, SoundEffects.ft, SoundCategory.BLOCKS, 0.5F, world.random.nextFloat() * 0.15F + 0.6F);
+@@ -358,14 +376,31 @@ public class BlockPiston extends BlockDirectional {
+                 aiblockdata[j] = iblockdata;
+             }
+ 
+-            IS_WORKING = true; // Beast - Fix rail and carpet dupe
++            boolean allowPistonDuplication = com.destroystokyo.paper.PaperConfig.allowPistonDuplication;
++            IS_WORKING = !allowPistonDuplication; // Beast - legacy rail/carpet guard; Paper config restores vanilla behavior
+             for (k = list.size() - 1; k >= 0; --k) {
+-                blockposition2 = (BlockPosition) list.get(k);
+-                iblockdata = world.getType(blockposition2);
+-                world.setTypeAndData(blockposition2, Blocks.AIR.getBlockData(), 2);
+-                blockposition2 = blockposition2.shift(enumdirection1);
++                // Paper start - fix a variety of piston desync dupes (MC-188840)
++                BlockPosition oldPosition = (BlockPosition) list.get(k);
++                iblockdata = world.getType(oldPosition);
++                if (allowPistonDuplication) {
++                    // Preserve vanilla's original order when the unsupported setting is enabled.
++                    world.setTypeAndData(oldPosition, Blocks.AIR.getBlockData(), 2);
++                }
++                blockposition2 = oldPosition.shift(enumdirection1);
+                 world.setTypeAndData(blockposition2, Blocks.PISTON_EXTENSION.getBlockData().set(BlockPiston.FACING, enumdirection), 4);
+-                world.setTileEntity(blockposition2, BlockPistonMoving.a((IBlockData) arraylist.get(k), enumdirection, flag, false));
++
++                // Placing the moving block can run physics which changes or destroys the
++                // source (notably priming TNT). Move the state that is actually still there,
++                // rather than the stale state captured before physics ran.
++                if (!allowPistonDuplication) iblockdata = world.getType(oldPosition);
++                IBlockData movedState = allowPistonDuplication
++                        ? (IBlockData) arraylist.get(k)
++                        : iblockdata.c(world, oldPosition);
++                world.setTileEntity(blockposition2, BlockPistonMoving.a(movedState, enumdirection, flag, false));
++                if (!allowPistonDuplication) {
++                    world.setTypeAndData(oldPosition, Blocks.AIR.getBlockData(), 2 | 4 | 16);
++                }
++                // Paper end - fix a variety of piston desync dupes
+                 --j;
+                 aiblockdata[j] = iblockdata;
+             }
+diff --git a/src/main/java/net/minecraft/server/BlockStateList.java b/src/main/java/net/minecraft/server/BlockStateList.java
+index da236753f99ce42443b005b07b1de52e89623984..d3a238a9c76d5abb8c8b547f7adfc2fd4e651de7 100644
+--- a/src/main/java/net/minecraft/server/BlockStateList.java
++++ b/src/main/java/net/minecraft/server/BlockStateList.java
+@@ -328,7 +328,8 @@ public class BlockStateList {
+         }
+ 
+         public EnumPistonReaction o() {
+-            return this.a.h(this);
++            // Paper - Permanent blocks must not become movable through an unusual block state.
++            return !this.a.isDestroyable() ? EnumPistonReaction.BLOCK : this.a.h(this);
+         }
+ 
+         public IBlockData c(IBlockAccess iblockaccess, BlockPosition blockposition) {
+diff --git a/src/main/java/net/minecraft/server/BlockTripwireHook.java b/src/main/java/net/minecraft/server/BlockTripwireHook.java
+index a59b734acc9db87cec4affa0ca1bb47f21ba2a8a..60367644f78a0b5f676ded37eab44ef319ea9a75 100644
+--- a/src/main/java/net/minecraft/server/BlockTripwireHook.java
++++ b/src/main/java/net/minecraft/server/BlockTripwireHook.java
+@@ -175,7 +175,12 @@ public class BlockTripwireHook extends Block {
+ 
+         this.a(world, blockposition, flag4, flag5, flag2, flag3);
+         if (!flag) {
+-            world.setTypeAndData(blockposition, iblockdata3.set(BlockTripwireHook.FACING, enumdirection), 3);
++            // Paper - Validate tripwire hook placement before updating it. Physics may have
++            // already removed the hook; restoring it here is what enables tripwire/string dupes.
++            if (com.destroystokyo.paper.PaperConfig.skipTripwireHookPlacementValidation
++                    || world.getType(blockposition).getBlock() == Blocks.TRIPWIRE_HOOK) {
++                world.setTypeAndData(blockposition, iblockdata3.set(BlockTripwireHook.FACING, enumdirection), 3);
++            }
+             if (flag1) {
+                 this.a(world, blockposition, enumdirection);
+             }
+diff --git a/src/main/java/net/minecraft/server/Explosion.java b/src/main/java/net/minecraft/server/Explosion.java
+index 77644fdbfd41efedaf2810a60293320e9f83280a..4a18336665df5908c83e80072a14e4f7e76412f6 100644
+--- a/src/main/java/net/minecraft/server/Explosion.java
++++ b/src/main/java/net/minecraft/server/Explosion.java
+@@ -76,6 +76,10 @@ public class Explosion {
+                             BlockPosition blockposition = new BlockPosition(d4, d5, d6);
+                             IBlockData iblockdata = this.world.getType(blockposition);
+ 
++                            // Paper - Bedrock, end portals, and other permanent blocks absorb
++                            // the explosion without ever becoming destruction candidates.
++                            if (!iblockdata.getBlock().isDestroyable()) continue;
++
+                             if (iblockdata.getMaterial() != Material.AIR) {
+                                 float f2 = this.source != null ? this.source.a(this, this.world, blockposition, iblockdata) : iblockdata.getBlock().a((Entity) null);
+ 
+@@ -256,7 +260,8 @@ public class Explosion {
+                 }
+                 */ // Beast end
+ 
+-                if (iblockdata.getMaterial() != Material.AIR) {
++                // Paper - Revalidate here because plugins may alter the explosion block list.
++                if (iblockdata.getMaterial() != Material.AIR && block.isDestroyable()) {
+                     if (block.a(this)) {
+                         // CraftBukkit - add yield
+                         block.dropNaturally(this.world, blockposition, this.world.getType(blockposition), yield, 0);
+diff --git a/src/main/java/net/minecraft/server/PortalTravelAgent.java b/src/main/java/net/minecraft/server/PortalTravelAgent.java
+index 02ee4118b3f9fbf844a32df5d6feef3003c2eca6..fc7428fa33b72ae5131134d9a086331e102adfa3 100644
+--- a/src/main/java/net/minecraft/server/PortalTravelAgent.java
++++ b/src/main/java/net/minecraft/server/PortalTravelAgent.java
+@@ -498,6 +498,11 @@ public class PortalTravelAgent {
+         }
+ 
+         // Paper start
++        // The forced portal fallback can otherwise replace bedrock or another permanent
++        // block when no ordinary destination is available.
++        if (nmsBlocks.keySet().stream().anyMatch(pos -> !this.world.getType(pos).getBlock().isDestroyable())) {
++            return false;
++        }
+         PortalCreateEvent event = new PortalCreateEvent(bukkitBlocks, this.world.getWorld(), PortalCreateEvent.CreateReason.OBC_DESTINATION);
+         if(event.callEvent()){
+             nmsBlocks.forEach((pos, data) -> this.world.setTypeAndData(pos, data, 2));
+diff --git a/src/main/java/net/minecraft/server/World.java b/src/main/java/net/minecraft/server/World.java
+index ba3dcf73ffc5f4beda53eeb0946d8b58f91efa3f..ddbb623a0a2b943caf2bea62b7cb75b88121dff1 100644
+--- a/src/main/java/net/minecraft/server/World.java
++++ b/src/main/java/net/minecraft/server/World.java
+@@ -374,6 +374,11 @@ public abstract class World implements IBlockAccess {
+         // Beast end
+         // CraftBukkit start - tree generation
+         if (this.captureTreeGeneration) {
++            // Paper - Trees and giant mushrooms must not capture a replacement for a
++            // permanent block and later apply it after StructureGrowEvent.
++            if (!this.getType(blockposition).getBlock().isDestroyable()) {
++                return false;
++            }
+             BlockState blockstate = null;
+             Iterator<BlockState> it = capturedBlockStates.iterator();
+             while (it.hasNext()) {
